@@ -76,18 +76,18 @@ class Phase():
 
 	# walker
 	def comp_phase(self, height, vel):
-        	if height <= 0.8:
-        		phase = 0
-	        elif height > 2.0:
-        		phase = math.pi
-	        else:
-            		for i in range(self.n/2):
-                		if height > self.l[i] and height <= self.l[i+1]:
-                    			phase = (2*math.pi/self.n)*(i)
-        	if vel < 0:
+		if height <= 0.8:
+			phase = 0
+		elif height > 2.0:
+			phase = math.pi
+		else:
+				for i in range(self.n/2):
+					if height > self.l[i] and height <= self.l[i+1]:
+							phase = (2*math.pi/self.n)*(i)
+		if vel < 0:
 			phase = 2*math.pi - phase
 
-	        return phase
+		return phase
 
     	#def comp_phase(self):
         #	phase = (2*self.timer*math.pi)/1000

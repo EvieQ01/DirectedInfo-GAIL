@@ -27,6 +27,7 @@
 *.log
 *.sql
 *.sqlite
+*events.out*
 
 # OS generated files #
 ######################
@@ -52,6 +53,8 @@ Thumbs.db
 
 # Add ipynb_checkpoints
 IL/plots/.ipynb_checkpoints/
+*.pkl
+*.pth
 
 # rl-weights
 RL/assets/learned_models/

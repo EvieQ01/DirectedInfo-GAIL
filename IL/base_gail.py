@@ -978,10 +978,7 @@ class GAILMLP(BaseGAIL):
 
                 # Add history to state
                 if args.history_size > 1:
-                    # x_hist = -1 * np.ones(
-                    #         (x.shape[0], args.history_size, x.shape[1]),
-                    #         dtype=np.float32)
-                    pdb.set_trace()
+                    # pdb.set_trace()
                     x_hist[:, :-1, :] = x_hist[:, 1:, :]
                     x_hist[:, (args.history_size-1), :] = x_feat
                     # x = self.get_history_features(x_hist)

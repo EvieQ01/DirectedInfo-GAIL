@@ -22,7 +22,7 @@ from base_models import Policy, Posterior, DiscretePosterior
 
 from utils.logger import Logger, TensorboardXLogger
 from utils.torch_utils import get_weight_norm_for_network
-from vae import VAETrain
+from boundary_train_vae import VAETrain
 def main(args):
 
     # Create Logger
@@ -52,7 +52,7 @@ def main(args):
     expert = ExpertHDF5(args.expert_path, args.vae_state_size)
     expert.push(only_coordinates_in_state=True, one_hot_action=True)
     vae_train.set_expert(expert)
-
+    vae_train.get_boundary()
     # expert = Expert(args.expert_path, 2)
     # expert.push()
 

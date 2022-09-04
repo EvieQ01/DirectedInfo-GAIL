@@ -190,6 +190,19 @@ class ExpertHDF5(Expert):
         else:
             return Trajectory(*zip(*batch_list))
 
+    def sample_index(self, ind):
+        batch_list = [self.memory[ind]]
+        return Trajectory(*zip(*batch_list))
+    
+    def sample_all(self):
+        ind = np.arange(len(self.memory))
+        self.last_indices_sampled = ind
+        batch_list = []
+        for i in ind:
+            batch_list.append(self.memory[i])
+        # pdb.set_trace()
+        return Trajectory(*zip(*batch_list))
+
     def sample_as_list(self, size=5):
         ind = np.random.randint(len(self.memory), size=size)
         batch_list = []

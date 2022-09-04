@@ -1,4 +1,5 @@
 import copy
+import pdb
 import numpy as np
 
 import torch
@@ -155,9 +156,8 @@ class DiscreteLSTMPosterior(nn.Module):
                  latent_size=1,
                  hidden_size=1,
                  output_size=1):
-        super(DiscretePosterior, self).__init__()
-
-        self.input_size = state_size + action_size + latent_size # s+ a+ c
+        super(DiscreteLSTMPosterior, self).__init__()
+        self.input_size = state_size + latent_size # s+ c =12
         self.state_size = state_size
         self.action_size = action_size
         self.latent_size = latent_size
@@ -168,7 +168,9 @@ class DiscreteLSTMPosterior(nn.Module):
         self.output = nn.Linear(self.hidden_size, output_size)
 
     def forward(self, x):
-        output, (h_n, c_n) = self.encoder(x) # h, c shape as (2, B, hidden)
+        # x = (B, L, D_in) = (1, history, 12)
+        # pdb.set_trace()
+        output, (h_n, c_n) = self.encoder(x) # h, c shape as (2, 1, hidden)
         return self.output(c_n[-1]) # 2 for 2 layers
 
 class Value(nn.Module):

@@ -164,4 +164,55 @@ def plot_pickle_results(results_pkl_path, obstacles, rooms,
                                )
                 num_plot_traj += 1
 
+def plot_pickle_results_context(results_pkl_path, obstacles, rooms,
+                        num_traj_to_plot=1):
+    assert os.path.exists(results_pkl_path), \
+        'results pickle does not exist {}'.format(results_pkl_path)
+    with open(results_pkl_path, 'rb') as results_f:
+        results_dict = pickle.load(results_f)
+        
+        num_plot_traj = 0
+        # pdb.set_trace()
+        while num_plot_traj < num_traj_to_plot:
+            # traj_idx = np.random.randint(total_traj)
+            traj_idx = num_plot_traj #+ 10
+
+            goal_idx_list = [(0, results_dict['true_traj_state'][traj_idx].shape[0])]
+            # goal_idx_list = [(0, 50)]
+
+            for goal_start_idx, goal_end_idx in goal_idx_list:
+            
+                traj_len = goal_end_idx - goal_start_idx
+                true_traj, pred_traj = [], []
+                pred_context_list = []
+                          
+                for j in range(traj_len):
+                    x_true = (results_dict['true_traj_state'][traj_idx][goal_start_idx + j, 0, :]).tolist()
+                    #TODO
+                    x_pred = (results_dict['true_traj_state'][traj_idx][goal_start_idx + j, 0, :]).tolist()
+                    true_traj.append(x_true)
+                    pred_traj.append(x_pred)
+                    if results_dict.get(plot_type) is not None:
+                        if discrete_context:
+                            pred_context = softmax(results_dict[plot_type][traj_idx][goal_start_idx+j, 0, :])
+                        else:
+                            pred_context = results_dict[plot_type][traj_idx][goal_start_idx+j, 0, :]
+                        pred_context_list.append(pred_context)
+                
+                # Plot trajectory
+                fig_dir = os.path.join(os.path.dirname(results_pkl_path), 'visualize')
+                os.makedirs(fig_dir,exist_ok='True')
+                plot_trajectory(np.array(true_traj),
+                                (15, 11),
+                                pred_traj_data=np.array(pred_traj),
+                                color_map=sns.color_palette("Blues_r"),
+                                figsize=(6, 6),
+                                obstacles=obstacles,
+                                rooms=rooms,
+                                pred_context=pred_context_list,
+                                pred_context_discrete=discrete_context,
+                                save_path=os.path.join(fig_dir, f'traj{num_plot_traj}.png')
+                               )
+                num_plot_traj += 1
+
 # plot_pickle_results(results_file, obstacles, rooms, num_traj_to_plot=1)

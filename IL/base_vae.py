@@ -1,4 +1,5 @@
 
+import pdb
 from base_models import Policy, Posterior, DiscretePosterior, DiscreteLSTMPosterior
 import torch.nn as nn
 import torch
@@ -18,7 +19,7 @@ class VAE(nn.Module):
                  hidden_size=64,
                  use_goal_in_policy=True,
                  use_separate_goal_policy=True,
-                 use_history_in_policy=False, args=None):
+                 use_history_in_policy=False, use_boundary=False, args=None):
         '''
         state_size: State size
         latent_size: Size of 'c' variable
@@ -35,6 +36,7 @@ class VAE(nn.Module):
         self.use_goal_in_policy = use_goal_in_policy
         self.use_separate_goal_policy = use_separate_goal_policy
         self.use_history_in_policy = use_history_in_policy
+        self.use_boundary = use_boundary
 
         self.policy_latent_size = policy_latent_size
         if use_goal_in_policy:
@@ -74,8 +76,8 @@ class VAE(nn.Module):
                 hidden_size=hidden_size)
 
 
-    def encode(self, x, c):
-        return self.posterior(torch.cat((x, c), 1))
+    # def encode(self, x, c):
+    #     return self.posterior(torch.cat((x, c), 1))
 
     def reparameterize(self, mu, logvar):
         if self.training:
@@ -86,17 +88,16 @@ class VAE(nn.Module):
             return mu
 
 
-    def decode_goal_policy(self, x, g):
-        action_mean, _, _ = self.policy_goal(torch.cat((x, g), 1))
-        if 'circle' in self.args.env_type:
-            action_mean = action_mean / torch.norm(action_mean, dim=1).unsqueeze(1)
-        return action_mean
+    # def decode_goal_policy(self, x, g):
+    #     action_mean, _, _ = self.policy_goal(torch.cat((x, g), 1))
+    #     if 'circle' in self.args.env_type:
+    #         action_mean = action_mean / torch.norm(action_mean, dim=1).unsqueeze(1)
+    #     return action_mean
 
     def decode(self, x, c):
-        action_mean, action_log_std, action_std = self.policy(
-                torch.cat((x, c), 1))
-        if 'circle' in self.args.env_type:
-            action_mean = action_mean / torch.norm(action_mean, dim=1).unsqueeze(1)
+
+        # pdb.set_trace()
+        action_mean, action_log_std, action_std = self.policy(torch.cat((x, c), -1))
 
         return action_mean
 
@@ -114,30 +115,22 @@ class VAE(nn.Module):
             decoder_output_2 = None
 
 
-        if self.use_goal_in_policy: # False
-            if self.use_history_in_policy:
-                decoder_output_1 = self.decode(x, c)
-            else:
-                decoder_output_1 = self.decode(
-                        x[:, -self.policy_state_size:], c)
+
+        if self.use_history_in_policy:
+            decoder_output_1 = self.decode(
+                    x, c[:,-self.posterior_latent_size:])
         else:
-            if self.use_history_in_policy:
-                decoder_output_1 = self.decode(
-                        x, c[:,-self.posterior_latent_size:])
-            else:
-                decoder_output_1 = self.decode(
-                        x[:, -self.policy_state_size:],
-                        c[:,-self.posterior_latent_size:])
+            decoder_output_1 = self.decode(
+                    x[:, :, -self.policy_state_size:],
+                    c[:, :, -self.posterior_latent_size:])
 
-            if self.use_separate_goal_policy:
-                decoder_output_2 = self.decode_goal_policy(x, g)
 
-            '''
-            decoder_output1 is action of policy 
-            decoder_output2 is action goal_policy
-            mu, logvar is posterior.
-            '''
-            return decoder_output_1, decoder_output_2, mu, logvar
+        '''
+        decoder_output1 is action of policy 
+        decoder_output2 is action goal_policy
+        mu, logvar is posterior.
+        '''
+        return decoder_output_1, decoder_output_2, mu, logvar
 
 class DiscreteVAE(VAE):
     def __init__(self, temperature=5.0, **kwargs):
@@ -152,7 +145,7 @@ class DiscreteVAE(VAE):
             self.posterior = DiscreteLSTMPosterior(
                     state_size=kwargs['posterior_state_size'],
                     action_size=kwargs['posterior_action_size'],
-                    latent_size=kwargs['posterior_latent_size']+kwargs['posterior_goal_size'],
+                    latent_size=kwargs['posterior_latent_size'],
                     output_size=kwargs['posterior_latent_size'],
                     hidden_size=kwargs['hidden_size'],
             )
@@ -160,7 +153,7 @@ class DiscreteVAE(VAE):
             self.posterior = DiscretePosterior(
                 state_size=kwargs['posterior_state_size']*self.history_size,
                 action_size=kwargs['posterior_action_size'],
-                latent_size=kwargs['posterior_latent_size']+kwargs['posterior_goal_size'],
+                latent_size=kwargs['posterior_latent_size'],
                 output_size=kwargs['posterior_latent_size'],
                 hidden_size=kwargs['hidden_size'],
         )
@@ -181,7 +174,10 @@ class DiscreteVAE(VAE):
 
     def encode(self, x, c):
         '''Return the log probability output for the encoder.'''
-        logits = self.posterior(torch.cat((x, c), 1))
+        # x = (B, history, 2)
+        # c = (B, history-1, 10)
+        # x_c_history 
+        logits = self.posterior(torch.cat((x, c), -1))
         return logits
 
     def sample_gumbel(self, shape, eps=1e-20):
@@ -209,37 +205,18 @@ class DiscreteVAE(VAE):
             probs = F.softmax(logits / temperature, dim=1)
         return probs
 
-    def forward(self, x, c, g, only_goal_policy=False):
-        # if only_goal_policy:
-        #     decoder_output_2 = self.decode_goal_policy(x, g)
-        #     # Return a tuple as the else part below. Caller should expect a
-        #     # tuple always.
-        #     return decoder_output_2,
+    def forward(self, x, c,):
 
         c_logits = self.encode(x, c)
-        c[:, -self.posterior_latent_size:] = self.reparameterize(
-                c_logits, self.temperature)
+        # remake c of last timestep
+        # pdb.set_trace()
+        c[:, -1, -self.posterior_latent_size:] = self.reparameterize(c_logits, self.temperature)
 
         decoder_output_1 = None
         decoder_output_2 = None
 
-        # if self.use_goal_in_policy:
-        #     if self.use_history_in_policy:
-        #         decoder_output_1 = self.decode(x, c)
-        #     else:
-        #         decoder_output_1 = self.decode(x[:,-self.policy_state_size:], c)
-        # else:
-        if self.use_history_in_policy:
-            decoder_output_1 = self.decode(
-                    x, c[:,-self.posterior_latent_size:])
-        else:
-            decoder_output_1 = self.decode(
-                    x[:, -self.policy_state_size:],
-                    c[:,-self.posterior_latent_size:])
-
-        # if self.use_separate_goal_policy:
-        #     decoder_output_2 = self.decode_goal_policy(x, g)
-
+        # Use last timestep \pi(x, c)
+        decoder_output_1 = self.decode(x[:,-1, -self.policy_state_size:], c[:,-1,-self.posterior_latent_size:])
         '''
         decoder_output_1 is action
         decoder_output_2 is goal_conditioned_action

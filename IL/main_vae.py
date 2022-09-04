@@ -18,7 +18,7 @@ import circle_world as cw
 from load_expert_traj import Expert, ExpertHDF5, CircleExpertHDF5
 from load_expert_traj import recursively_save_dict_contents_to_group
 from itertools import product
-from models import Policy, Posterior, DiscretePosterior
+from base_models import Policy, Posterior, DiscretePosterior
 
 from utils.logger import Logger, TensorboardXLogger
 from utils.torch_utils import get_weight_norm_for_network

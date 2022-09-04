@@ -42,3 +42,5 @@ with open(args.results_pkl_path, 'wb') as results_f:
     print('Did save results to {}'.format(args.results_pkl_path))
 
 # plot with different color
+# from matplotlib import pyplot as plt
+# plt.savefig()

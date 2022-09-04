@@ -45,7 +45,8 @@ def main(args):
         use_rnn_goal_predictor=args.use_rnn_goal,
         dtype=dtype,
         env_type=args.env_type,
-        env_name=args.env_name
+        env_name=args.env_name,
+        use_boundary=args.use_boundary
     )
 
     expert = ExpertHDF5(args.expert_path, args.vae_state_size)
@@ -190,6 +191,8 @@ if __name__ == '__main__':
                               'values in VAE')
     parser.set_defaults(use_state_features=False)
 
+    # Use boundary
+    parser.add_argument('--use_boundary', action='store_true')
     # Use velocity in history
     parser.add_argument('--use_velocity_features', dest='use_velocity_features',
                         action='store_true',

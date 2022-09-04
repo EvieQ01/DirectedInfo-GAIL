@@ -148,6 +148,28 @@ class DiscretePosterior(nn.Module):
 
         return self.output(h2)
 
+class DiscreteLSTMPosterior(nn.Module):
+    def __init__(self,
+                 state_size=1,
+                 action_size=1,
+                 latent_size=1,
+                 hidden_size=1,
+                 output_size=1):
+        super(DiscretePosterior, self).__init__()
+
+        self.input_size = state_size + action_size + latent_size # s+ a+ c
+        self.state_size = state_size
+        self.action_size = action_size
+        self.latent_size = latent_size
+        self.hidden_size = hidden_size
+        self.encoder = nn.LSTM(hidden_size=self.hidden_size, input_size=self.input_size, batch_first=True, num_layers=2) #N, L , H_in
+        # self.affine1 = nn.Linear(self.input_size, self.hidden_size)
+        # self.affine2 = nn.Linear(self.hidden_size, self.hidden_size)
+        self.output = nn.Linear(self.hidden_size, output_size)
+
+    def forward(self, x):
+        output, (h_n, c_n) = self.encoder(x) # h, c shape as (2, B, hidden)
+        return self.output(c_n[-1]) # 2 for 2 layers
 
 class Value(nn.Module):
     def __init__(self, state_size, hidden_size=64):

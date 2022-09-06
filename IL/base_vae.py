@@ -1,6 +1,6 @@
 
 import pdb
-from base_models import Policy, Posterior, DiscretePosterior, DiscreteLSTMPosterior
+from base_models import Policy, Posterior, DiscretePosterior, DiscreteLSTMPosterior, Transition
 import torch.nn as nn
 import torch
 from torch.autograd import Variable
@@ -75,7 +75,7 @@ class VAE(nn.Module):
                 output_size=posterior_latent_size,
                 hidden_size=hidden_size)
 
-
+        self.transition = Transition(latent_size=posterior_latent_size) #(10 -> 10)
     # def encode(self, x, c):
     #     return self.posterior(torch.cat((x, c), 1))
 
@@ -175,9 +175,11 @@ class DiscreteVAE(VAE):
     def encode(self, x, c):
         '''Return the log probability output for the encoder.'''
         # x = (B, history, 2)
-        # c = (B, history-1, 10)
+        # c = (B, 10)
         # x_c_history 
-        logits = self.posterior(torch.cat((x, c), -1))
+        # pdb.set_trace()
+        duplicate_c = c.repeat(1, x.shape[-2], 1)
+        logits = self.posterior(torch.cat((x, duplicate_c), -1))
         return logits
 
     def sample_gumbel(self, shape, eps=1e-20):
@@ -210,17 +212,15 @@ class DiscreteVAE(VAE):
         c_logits = self.encode(x, c)
         # remake c of last timestep
         # pdb.set_trace()
-        c[:, -1, -self.posterior_latent_size:] = self.reparameterize(c_logits, self.temperature)
+        c_next = self.reparameterize(c_logits, self.temperature) # c_next
 
         decoder_output_1 = None
-        decoder_output_2 = None
 
-        # Use last timestep \pi(x, c)
-        decoder_output_1 = self.decode(x[:,-1, -self.policy_state_size:], c[:,-1,-self.posterior_latent_size:])
+        # Use last timestep \pi(x_t, c)
+        decoder_output_1 = self.decode(x[:,-1, :], c_next) # (B, 2) (B, 10)
         '''
         decoder_output_1 is action
-        decoder_output_2 is goal_conditioned_action
         c_logits is encoded variable (posterior)
         '''
-        return decoder_output_1, None, c_logits
-
+        return decoder_output_1, c_logits
+    

@@ -213,3 +213,17 @@ class Reward(nn.Module):
 
         rewards = F.sigmoid(self.reward_head(x))
         return rewards
+
+class Transition(nn.Module):
+    def __init__(self, latent_size, hidden_size=64):
+        super(Transition, self).__init__()
+
+        self.input_size = latent_size
+        self.hidden_size = hidden_size
+
+        self.affine1 = nn.Linear(self.input_size, hidden_size)
+        self.affine2 = nn.Linear(hidden_size, latent_size)
+
+    def forward(self, x):
+        x = F.relu(self.affine1(x))
+        return self.affine2(x)

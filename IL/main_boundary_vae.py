@@ -65,8 +65,7 @@ def main(args):
         print("Did load models at: {}".format(args.checkpoint_path))
         results_pkl_path = os.path.join(args.results_dir, 'pred_result_cp_1000.pkl')
         vae_train.test_models(expert, results_pkl_path=results_pkl_path,
-                            num_test_samples=20,   
-                            test_goal_policy_only=False)
+                            num_test_samples=20)
         plot_pickle_results(results_pkl_path=results_pkl_path, obstacles=vae_train.obstacles, rooms=vae_train.rooms, num_traj_to_plot=20)
 
     elif args.run_mode == 'train':
@@ -221,6 +220,10 @@ if __name__ == '__main__':
     # Expert batch episode length
     parser.add_argument('--episode_len', type=int, default=6,
                         help='Fixed episode length for batch training.')
+
+    parser.add_argument('--lambda_policy', type=float, default=1., help='coefficient for BC loss')
+    parser.add_argument('--lambda_kld', type=float, default=.1, help='coefficient for KLDistance loss')
+    parser.add_argument('--lambda_d_adjacent', type=float, default=1., help='coefficient for adjacent Distance loss')
 
     args = parser.parse_args()
     if args.cuda and not torch.cuda.is_available():

@@ -1,3 +1,4 @@
+from bcolors import bcolors
 from boundary_utils import get_boundary_from_all_traj
 from re import L
 from tqdm import trange
@@ -10,7 +11,6 @@ import pickle
 import torch
 import gym
 import math
-
 from torch import nn, optim
 from torch.autograd import Variable
 from torch.nn import functional as F
@@ -36,9 +36,6 @@ class VAETrain(object):
                  height=21,
                  state_size=2,
                  action_size=4,
-                 num_goals=4,
-                 history_size=1,
-                 use_rnn_goal_predictor=False,
                  dtype=torch.FloatTensor,
                  env_type='grid',
                  env_name=None, use_boundary=False):
@@ -49,10 +46,7 @@ class VAETrain(object):
         self.width, self.height = width, height
         self.state_size = state_size
         self.action_size = action_size
-        self.history_size = history_size
-        self.num_goals = num_goals
         self.dtype = dtype
-        self.use_rnn_goal_predictor = use_rnn_goal_predictor
         self.env_type = env_type
         self.env_name = env_name
         self.use_boundary = use_boundary
@@ -64,7 +58,7 @@ class VAETrain(object):
         self.Q_2_model = nn.LSTMCell(64, 64)
 
         # Output of linear model num_goals = 4
-        self.Q_model_linear = nn.Linear(64, num_goals)
+        # self.Q_model_linear = nn.Linear(64, num_goals)
 
         # action_size is 0
         # Hack -- VAE input dim (s + a + latent).
@@ -77,12 +71,8 @@ class VAETrain(object):
                     posterior_action_size=0,
                     policy_latent_size=args.vae_context_size,
                     posterior_latent_size=args.vae_context_size,
-                    posterior_goal_size=num_goals,
                     policy_output_size=action_size,
-                    history_size=history_size,
                     hidden_size=64,
-                    use_goal_in_policy=args.use_goal_in_policy,
-                    use_separate_goal_policy=args.use_separate_goal_policy,
                     use_boundary=args.use_boundary,
                     args=args)
         else:
@@ -93,19 +83,16 @@ class VAETrain(object):
                     posterior_action_size=0,
                     policy_latent_size=args.vae_context_size,
                     posterior_latent_size=args.vae_context_size,
-                    posterior_goal_size=num_goals,
                     policy_output_size=action_size,
-                    history_size=history_size,
                     hidden_size=64,
-                    use_goal_in_policy=args.use_goal_in_policy,
-                    use_separate_goal_policy=args.use_separate_goal_policy,
-                    use_history_in_policy=args.use_history_in_policy,
                     args=args)
 
         self.obstacles, self.transition_func = None, None
 
         if args.run_mode == 'train':
-            self.vae_opt = optim.Adam(self.vae_model.parameters(), lr=1e-4)
+            self.policy_opt = optim.Adam(self.vae_model.policy.parameters(), lr=1e-3)
+            self.posterior_opt = optim.Adam(self.vae_model.posterior.parameters(), lr=1e-3)
+            self.transition_opt = optim.Adam(self.vae_model.transition.parameters(), lr=1e-3)
 
         elif args.run_mode == 'test' or args.run_mode == 'test_goal_pred':
             pass
@@ -152,10 +139,19 @@ class VAETrain(object):
 
     def convert_models_to_type(self, dtype):
         self.vae_model = self.vae_model.type(dtype)
-        if self.use_rnn_goal_predictor:
-          self.Q_model = self.Q_model.type(dtype)
-          self.Q_2_model = self.Q_2_model.type(dtype)
-          self.Q_model_linear = self.Q_model_linear.type(dtype)
+        # if self.use_rnn_goal_predict''or:
+        #   self.Q_model = self.Q_model.type(dtype)
+        #   self.Q_2_model = self.Q_2_model.type(dtype)
+        #   self.Q_model_linear = self.Q_m''odel_linear.type(dtype)
+
+    def KLD_loss(self, logits):
+        q_prob = F.softmax(logits, dim=1)  # q_prob
+        log_q_prob = torch.log(q_prob + 1e-10)  # log q_prob
+        prior_prob = Variable(torch.Tensor([1.0 / self.vae_model.posterior_latent_size])).type(
+                logits.data.type())
+        batch_size = logits.size(0)
+        KLD = torch.sum(q_prob * (log_q_prob - torch.log(prior_prob))) / batch_size
+        return KLD
 
     # Reconstruction + KL divergence losses summed over all elements and batch
     def loss_function(self, recon_x1, a, vae_posterior_output):
@@ -244,44 +240,13 @@ class VAETrain(object):
                              self.train_step_count)
 
 
-        if self.use_rnn_goal_predictor and 'Q_model_linear' in models_to_log:
-            Q_model_l2_norm, Q_model_l2_grad_norm = \
-                            get_weight_norm_for_network(self.Q_model_linear)
-            self.logger.summary_writer.add_scalar(
-                            'weight/Q_model_linear_l2',
-                             Q_model_l2_norm,
-                             self.train_step_count)
-            self.logger.summary_writer.add_scalar(
-                            'grad/Q_model_linear_l2',
-                             Q_model_l2_grad_norm,
-                             self.train_step_count)
-
-        if self.use_rnn_goal_predictor and 'Q_model' in models_to_log:
-            Q_model_l2_norm, Q_model_l2_grad_norm = \
-                            get_weight_norm_for_network(self.Q_model)
-            self.logger.summary_writer.add_scalar(
-                            'weight/Q_model_l2',
-                             Q_model_l2_norm,
-                             self.train_step_count)
-            self.logger.summary_writer.add_scalar(
-                            'grad/Q_model_l2',
-                             Q_model_l2_grad_norm,
-                             self.train_step_count)
 
     def set_models_to_train(self):
-        if self.use_rnn_goal_predictor:
-          self.Q_model.train()
-          self.Q_2_model.train()
-          self.Q_model_linear.train()
-
         self.vae_model.train()
 
     def save_checkpoint(self, epoch):
         model_data = {
                 'vae_model': self.vae_model.state_dict(),
-                'Q_model': self.Q_model.state_dict(),
-                'Q_2_model': self.Q_2_model.state_dict(),
-                'Q_model_linear': self.Q_model_linear.state_dict(),
         }
         torch.save(model_data, self.model_checkpoint_filename(epoch))
 
@@ -289,18 +254,11 @@ class VAETrain(object):
         '''Load models from checkpoint.'''
         checkpoint_models = torch.load(checkpoint_path)
         self.vae_model.load_state_dict(checkpoint_models['vae_model'])
-        self.Q_model.load_state_dict(checkpoint_models['Q_model'])
-        if checkpoint_models.get('Q_2_model') is not None:
-            self.Q_2_model.load_state_dict(checkpoint_models['Q_2_model'])
-        self.Q_model_linear.load_state_dict(checkpoint_models['Q_model_linear'])
 
     def load_checkpoint_goal_policy(self, checkpoint_path):
         '''Load models from checkpoint.'''
         checkpoint_models = torch.load(checkpoint_path)
         self.vae_model.load_state_dict(checkpoint_models['vae_model'])
-        self.Q_model.load_state_dict(checkpoint_models['Q_model'])
-        self.Q_2_model.load_state_dict(checkpoint_models['Q_2_model'])
-        self.Q_model_linear.load_state_dict(checkpoint_models['Q_model_linear'])
 
     def get_state_features(self, state_obj, use_state_features):
         if use_state_features:
@@ -419,8 +377,6 @@ class VAETrain(object):
             batch = expert.sample(batch_size)
 
             self.vae_opt.zero_grad()
-            if self.use_rnn_goal_predictor:
-                self.Q_model_opt.zero_grad()
 
             ep_state, ep_action, _, ep_mask = batch
             ep_state = np.array(ep_state, dtype=np.float32)
@@ -429,7 +385,7 @@ class VAETrain(object):
 
             x_feat_traj = ep_state
             c_traj =  -1 * np.ones((batch_size, ep_state.shape[1] + 1, self.vae_model.posterior_latent_size),
-                            dtype=np.float32) # (B, L + 1, 10)
+                            dtype=self.dtype) # (B, L + 1, 10)
 
             # Store list of losses to backprop later.
             ep_loss, curr_state_arr = [], ep_state[:, 0, :]
@@ -483,8 +439,6 @@ class VAETrain(object):
             total_loss.backward()
 
             self.vae_opt.step()
-            if self.use_rnn_goal_predictor:
-                self.Q_model_opt.step()
 
             # Get the gradients and network weights
             if self.args.log_gradients_tensorboard:
@@ -545,125 +499,142 @@ class VAETrain(object):
 
         # TODO: The current sampling process can retrain on a single trajectory
         # multiple times. Will fix it later.
-        num_batches = len(expert) // batch_size
+        num_batches = len(expert) // batch_size + 1
         total_epoch_loss, total_epoch_per_step_loss = 0.0, 0.0
 
-        lambda_within = 0.1
-        lambda_KL = 1.
-        for batch_idx in range(num_batches): # 300 // 128 = 2
-            # Train loss for this batch
-            train_loss, train_policy_loss = 0.0, 0.0
-            train_KLD_loss, train_policy2_loss = 0.0, 0.0
-            train_cosine_loss_for_context = 0.0
-            ep_timesteps = 0
-            true_return = 0.0
-            batch = expert.sample(batch_size)
+        for batch_idx in range(num_batches):
+            total_pair_count = 0
+            batch_posterior_loss = []
+            batch_policy_loss = []
+            batch_transition_loss = []
+            self.policy_opt.zero_grad()
+            self.posterior_opt.zero_grad()
+            self.transition_opt.zero_grad()
+            # keep rolling out until batch_size
+            while total_pair_count < batch_size:
+            # for batch_idx in range(num_batches): # 300 // 128 = 2
+                # Train loss for this batch
+                train_loss, train_policy_loss = 0.0, 0.0
+                train_KLD_loss, train_posterior_loss, train_transition_loss = 0.0, 0.0, 0.0
+                train_cosine_loss_for_context = 0.0
+                ep_timesteps = 0
+                true_return = 0.0
+                batch = expert.sample(1)
 
-            self.vae_opt.zero_grad()
+                ep_state, ep_action, _, ep_mask = batch
+                ep_state = np.array(ep_state, dtype=np.float32)
+                ep_action = np.array(ep_action, dtype=np.float32)# (B, L, D)
+                action_var = Variable(
+                        torch.from_numpy(ep_action).type(self.dtype))
+                total_pair_count += ep_state.shape[-2]
 
-            ep_state, ep_action, _, ep_mask = batch
-            ep_state = np.array(ep_state, dtype=np.float32)
-            ep_action = np.array(ep_action, dtype=np.float32)# (B, L, D)
-            action_var = Variable(
-                    torch.from_numpy(ep_action).type(self.dtype))
-
-            x_feat_traj = ep_state
-            # c_traj =  -1 * np.ones((batch_size, ep_state.shape[1] + 1, self.vae_model.posterior_latent_size),
-            #                  dtype=np.float32) # (B, L + 1, 10)
-            # c_traj_var =  -1 * torch.ones((batch_size, ep_state.shape[1] + 1, self.vae_model.posterior_latent_size),
-            #                  dtype=torch.float32, requires_grad=True) # (B, L + 1, 10)
-
-            # Store list of losses to backprop later.
-            ep_loss, curr_state_arr = [], ep_state[:, 0, :]
-            boundary_time_stamp_list = []
-            episode_len = ep_state.shape[1]
-            # pdb.set_trace()
-            for history_t in range(episode_len):
-                xy_posi = (x_feat_traj[0][history_t][0], x_feat_traj[0][history_t][1])
-                if xy_posi in self.boundary_list:
-                    # print('boundary: ', xy_posi)
-                    if history_t not in boundary_time_stamp_list:
-                        boundary_time_stamp_list.append(history_t)
-            c_traj_var = -1 * torch.ones((batch_size, len(boundary_time_stamp_list) + 1, self.vae_model.posterior_latent_size),
-                            dtype=torch.float32, requires_grad=True) # (B, count_L, 10)
-            # TODO all c shift for 1 timestep
-            # c_var_pre = Variable(c_traj_var[:, 0, :]).type(self.dtype)
-            sub_traj_index = 0
-            cross_point_index = 0
-            for t in range(episode_len):
-                # get history
-                ep_timesteps += 1
-
-                x_var = Variable(torch.from_numpy(x_feat_traj[:, cross_point_index:t+1, :]).type(self.dtype))
+                x_feat_traj = ep_state
+                boundary_time_stamp_list = []
+                episode_len = ep_state.shape[1]
                 # pdb.set_trace()
-                # (B, history-1, 10)
-                # c_var = Variable(c_traj_var[:, boundary_time_stamp:t+1, :]).type(self.dtype)
-                # c_var = Variable(torch.from_numpy(c_traj[:, boundary_time_stamp:t+1, :]).type(self.dtype))
-                # if len(c_var.shape) == 2:# (B, 10)
-                #     c_var = torch.unsqueeze(c_var, dim=1) # (B, 1, 10)
-                # 1. MI variational bound for posterior
-                action_mean, posterior = self.vae_model(x_var, c_traj_var[:, sub_traj_index, :]) #(B, 4), posterior (B, 10)
-                expert_action_var = action_var[:, t, :].clone()
-                vae_reparam_input = (posterior,
-                                        self.vae_model.temperature)
-                # pdb.set_trace()
-                # print(vae_output[0].shape)
-                loss, policy_loss, KLD_loss = \
-                        self.loss_function(action_mean, expert_action_var, posterior)
-                train_policy_loss += policy_loss.data.item()
-                train_KLD_loss += KLD_loss.data.item()
+                for history_t in range(episode_len):
+                    xy_posi = (x_feat_traj[0][history_t][0], x_feat_traj[0][history_t][1])
+                    if xy_posi in self.boundary_list:
+                        # print('boundary: ', xy_posi)
+                        if history_t not in boundary_time_stamp_list:
+                            boundary_time_stamp_list.append(history_t)
+                        # (len(boundary_time_stamp_list) + 1, 10)
+                c_traj_var = [F.softmax(torch.ones((ep_state.shape[0], self.vae_model.posterior_latent_size)).type(self.dtype), dim=-1) for _ in range(len(boundary_time_stamp_list) + 1)]
+                # TODO all c shift for 1 timestep
+                # c_var_pre = Variable(c_traj_var[:, 0, :]).type(self.dtype)
+                sub_traj_index = 0
+                cross_point_index = 0
+                for t in range(episode_len):
+                    # get history
+                    ep_timesteps += 1
 
-                ep_loss.append(loss)
-                train_loss += loss.data.item()
-
-                # update c
-                if t in boundary_time_stamp_list:
-                    cross_point_index = boundary_time_stamp_list[sub_traj_index] + 1
-                    sub_traj_index += 1
-                    c_traj_var[:, sub_traj_index, :] = self.vae_model.reparameterize(*vae_reparam_input)
+                    x_var = Variable(torch.from_numpy(x_feat_traj[:, cross_point_index:t+1, :]).type(self.dtype))
                     # pdb.set_trace()
-                    # c_var_pre = Variable(c_traj_var[:, sub_traj_index, :]).type(self.dtype)
-                # c_traj[:, t + 1, -self.vae_model.posterior_latent_size:] = \
-                #     self.vae_model.reparameterize(*vae_reparam_input).data.cpu()
-                # c_traj_var[:, t + 1, -self.vae_model.posterior_latent_size:] = \
-                #     self.vae_model.reparameterize(*vae_reparam_input)
-            # sum(P * log (P/Q))
-            # KLD_between = 
-            # boundary_t_prev = 0
-            # H_within = 0.
-            # # pdb.set_trace()
-            # for i in range(len(boundary_time_stamp_list)):
-            #     boundary_t = boundary_time_stamp_list[i]
-            #     sel_c = c_traj_var[0, boundary_t_prev:boundary_t, :] # (B, L, 10) -> (L_sub, 10)
-            #     H_within += -torch.sum(sel_c * torch.log(sel_c))
-            #     boundary_t_prev = boundary_time_stamp_list[i]
-            H_between = 0.
-            c_traj_var_prob = F.softmax(c_traj_var, dim=-1)
-            log_c_traj_var_prob = torch.log(c_traj_var_prob + 1e-10)  # log q_prob
+                    # 3. policy loss (action_mean is after softmax)
+                    action_mean, _, _ = self.vae_model.policy(torch.cat((x_var[:, -1, :], c_traj_var[sub_traj_index]), dim=-1)) #(B, 4), posterior (B, 10)
+                    expert_action_var = action_var[:, t, :]
+                    _, label_a = torch.max(expert_action_var, 1)
+                    policy_loss = F.cross_entropy(action_mean, label_a)
+                    batch_policy_loss.append(policy_loss)
+                    train_policy_loss += policy_loss.data.item()
+                    if t in boundary_time_stamp_list:
+                        if epoch > self.args.warmup_epochs:
+                            cross_point_index = boundary_time_stamp_list[sub_traj_index] + 1
+                            # 1. MI variational bound for posterior TODO +H(c)
+                            # c_var_plus = F.softmax(self.vae_model.transition(c_traj_var[:, sub_traj_index, :]), dim=-1)
+                            if epoch == (self.args.warmup_epochs + 1):
+                                pdb.set_trace()
+                                print('=> warmup ended.')
+                            if self.args.use_lstm_transition:
+                                c_hist = torch.cat(c_traj_var[0:sub_traj_index+1], dim=0)
+                                c_var_plus = F.softmax(self.vae_model.transition(c_hist)[0], dim=-1) # (h_n, c_n)
+                            else:
+                                c_var_plus = F.softmax(self.vae_model.transition(c_traj_var[sub_traj_index]), dim=-1) # (1, 10)
+                            _, label = torch.max(c_var_plus.clone(), 1)
+                            # get posterior c' = Q(x_{1:t}, c-1)
+                            logits = F.softmax(self.vae_model.posterior(x_var), dim=-1) #(B, 10)
+                            # reweight
+                            weight = (1. / self.args.vae_context_size) / logits.detach()
+                            posterior_loss = F.cross_entropy(logits, label.detach(), weight=weight)
+                            if epoch % 25  == 0:
+                                print(bcolors.Blue + f'importance sampling weight: {weight}, label{label.detach()}' + bcolors.Endc)
 
-            for i in range(len(boundary_time_stamp_list) - 1):
-                # boundary_t = boundary_time_stamp_list[i]
-                # sel_c = c_traj_var[0, boundary_t_prev:boundary_t, :] # (B, L, 10) -> (L_sub, 10)
-                # H_within += -torch.sum(sel_c * torch.log(sel_c))
-                # boundary_t_prev = boundary_time_stamp_list[i]
-                p_prob = c_traj_var_prob[:, i + 1, :]
-                q_prob = c_traj_var_prob[:, i + 2, :]#.detach()
-                p_prob_log = log_c_traj_var_prob[:, i + 1, :]
-                q_prob_log = log_c_traj_var_prob[:, i + 2, :]#.detach()
-                H_between += 0.5 * torch.sum((p_prob * (p_prob_log - q_prob_log) \
-                                    + q_prob * (q_prob_log - p_prob_log)))
+                            KLD_loss = self.KLD_loss(logits)    
+                            batch_posterior_loss.append(posterior_loss + KLD_loss * self.args.lambda_kld)
+                            train_posterior_loss += posterior_loss.data.item()
+                            train_KLD_loss += KLD_loss.data.item()
+                            train_loss += batch_posterior_loss[-1].data.item()
+
+                            # 2. Transition loss
+                            # logits_posterior = F.softmax(self.vae_model.posterior(x_var).detach(), dim=-1) #(B, 10) TODO, should use updated posterior net
+                            _, label_posterior = torch.max(logits.clone(), 1)
+                            # c_var_plus = self.vae_model.transition(c_traj_var[:, sub_traj_index, :])
+                            transition_loss = F.cross_entropy(c_var_plus, label_posterior.detach())
+                            batch_transition_loss.append(transition_loss)
+                            train_transition_loss += transition_loss.data.item()
+                            train_loss += transition_loss.data.item()
+
+                            # update c 
+                            sub_traj_index += 1
+                            c_traj_var[sub_traj_index] = self.vae_model.reparameterize(logits=logits, temperature=self.vae_model.temperature).clone()
+                            # pdb.set_trace()
+                        else:
+                            cross_point_index = boundary_time_stamp_list[sub_traj_index] + 1
+                            # 1. KL only
+                            # c_var_plus = F.softmax(self.vae_model.transition(c_traj_var[:, sub_traj_index, :]), dim=-1)
+                            logits = F.softmax(self.vae_model.posterior(x_var), dim=-1) #(B, 10)
+                            KLD_loss = self.KLD_loss(logits)    
+                            batch_posterior_loss.append(KLD_loss * self.args.lambda_kld)
+                            train_posterior_loss += batch_posterior_loss[-1].data.item()
+                            train_KLD_loss += KLD_loss.data.item()
+
+                            # update c 
+                            sub_traj_index += 1
+                            c_traj_var[sub_traj_index] = self.vae_model.reparameterize(logits=logits, temperature=self.vae_model.temperature)
 
             # Calculate the total loss.
-            total_loss = ep_loss[0]
-            for t in range(1, len(ep_loss)):
-                total_loss = total_loss + ep_loss[t]
+            total_loss = batch_posterior_loss[0]
+            for t in range(1, len(batch_posterior_loss)):
+                total_loss = total_loss + batch_posterior_loss[t]
+            # torch.mean(ep_posterior_loss).backward(retain_graph=True)
+            (total_loss / len(batch_posterior_loss)).backward(retain_graph=True)
+            
+            if epoch > self.args.warmup_epochs:
+                total_loss_2 = batch_transition_loss[0]
+                for t in range(1, len(batch_transition_loss)):
+                    total_loss_2 = total_loss_2 + batch_transition_loss[t]
+                # total_loss.backward()
+                (total_loss_2 / len(batch_transition_loss)).backward(retain_graph=True)
 
-            # total_loss += H_within * lambda_within
-            # pdb.set_trace()
-            total_loss.backward(retain_graph=True)
-            (-H_between * self.args.lambda_d_adjacent).backward()
-            self.vae_opt.step()
+            total_loss = batch_policy_loss[0]
+            for t in range(1, len(batch_policy_loss)):
+                total_loss = total_loss + batch_policy_loss[t]
+            (total_loss / len(batch_policy_loss)).backward(retain_graph=True)
 
+            self.posterior_opt.step()
+            self.policy_opt.step()
+            if epoch > self.args.warmup_epochs:
+                self.transition_opt.step()
             # Get the gradients and network weights
             if self.args.log_gradients_tensorboard:
                 self.log_model_to_tensorboard()
@@ -674,8 +645,8 @@ class VAETrain(object):
             total_epoch_per_step_loss += (train_loss / episode_len)
             train_stats['train_loss'].append(train_loss)
             self.logger.summary_writer.add_scalar('loss/per_sample',
-                                                   train_loss,
-                                                   self.train_step_count)
+                                                    train_loss,
+                                                    self.train_step_count)
             self.logger.summary_writer.add_scalar(
                     'loss/policy_loss_per_sample',
                     train_policy_loss,
@@ -691,21 +662,21 @@ class VAETrain(object):
 
             if batch_idx % self.args.log_interval == 0:
                 print('Train Epoch: {} [{}/{}] \t Loss: {:.3f} \t ' \
-                        'Policy Loss: {:.2f}, \t KLD: {:.2f}, \t KL_between: {:.2f}' \
+                        'Policy Loss: {:.2f}, \t Posterior Loss: {:.2f}, \t KLD: {:.2f}, \t Transition Loss: {:.2f}' \
                         .format(
                     epoch, batch_idx, num_batches, train_loss,
-                    train_policy_loss, train_KLD_loss, H_between.data.item()))
+                    train_policy_loss, train_posterior_loss, train_KLD_loss, train_transition_loss))
 
             self.train_step_count += 1
 
-        # Add other data to logger
-        self.logger.summary_writer.add_scalar('loss/per_epoch_all_step',
-                                               total_epoch_loss / num_batches,
-                                               self.train_step_count)
-        self.logger.summary_writer.add_scalar(
-                'loss/per_epoch_per_step',
-                total_epoch_per_step_loss  / num_batches,
-                self.train_step_count)
+            # Add other data to logger
+            self.logger.summary_writer.add_scalar('loss/per_epoch_all_step',
+                                                total_epoch_loss / num_batches,
+                                                self.train_step_count)
+            self.logger.summary_writer.add_scalar(
+                    'loss/per_epoch_per_step',
+                    total_epoch_per_step_loss  / num_batches,
+                    self.train_step_count)
 
         return train_stats
 
@@ -748,7 +719,7 @@ class VAETrain(object):
         '''
         self.vae_model.eval()
 
-        history_size, batch_size = self.vae_model.history_size, 1
+        batch_size = 1
 
         results = {
                 'true_traj_state': [], 'true_traj_action': [],
@@ -797,8 +768,8 @@ class VAETrain(object):
                 # else: # add true goal after c, but didn't use.  # (B, history-1, 10)
                 # TODO all c shift for 1 timestep
                 
-                vae_output = self.vae_model(x_var, c_traj_var[:, sub_traj_index, :]) # output = (B, 4), posterior (B, 10)
-
+                # vae_output = self.vae_model(x_var, c_traj_var[:, sub_traj_index, :]) # output = (B, 4), posterior (B, 10)
+                logit = F.softmax(self.vae_model.posterior(x_var), dim=-1)
                 expert_action_var = action_var[:, t, :].clone()
                 if t in boundary_time_stamp_list:
                     # pdb.set_trace()
@@ -809,7 +780,7 @@ class VAETrain(object):
                     for _ in range(x_var.shape[-2]):
                         pred_context.append(c_traj_var[:, sub_traj_index, :].data.cpu().numpy())
 
-                vae_reparam_input = (vae_output[1], self.vae_model.temperature)
+                vae_reparam_input = (logit, self.vae_model.temperature)
             # pdb.set_trace()
 
 
@@ -871,7 +842,7 @@ class VAETrain(object):
         # are required for goal prediction.
         print('width:', self.width)
         print('hight:', self.height)
-        print('posterior_goal_size:', self.vae_model.posterior_goal_size)
+        # print('posterior_goal_size:', self.vae_model.posterior_goal_size)
         print('posterior_latent_size', self.vae_model.posterior_latent_size)
         list_of_obstacles = self.obstacles.tolist()
         # print(list_of_obstacles)
@@ -906,10 +877,7 @@ class VAETrain(object):
                         c_var = Variable(torch.from_numpy(c).type(self.dtype))
                         c_var = torch.cat([true_goal, c_var], dim=1)
 
-                        if self.vae_model.use_goal_in_policy:
-                            action = self.vae_model.decode(x_var[:, -self.vae_model.policy_state_size:], c_var)
-                        else:
-                            action = self.vae_model.decode(x_var[:, -self.vae_model.policy_state_size:],
+                        action = self.vae_model.decode(x_var[:, -self.vae_model.policy_state_size:],
                                                            c_var[:,-self.vae_model.posterior_latent_size:])
 
                         pred_actions_numpy = action.data.cpu().numpy()

@@ -40,12 +40,8 @@ def main(args):
         height=15,
         state_size=args.vae_state_size,
         action_size=args.vae_action_size,
-        history_size=args.vae_history_size,
-        num_goals=args.vae_goal_size,
-        use_rnn_goal_predictor=args.use_rnn_goal,
         dtype=dtype,
         env_type=args.env_type,
-        env_name=args.env_name,
         use_boundary=args.use_boundary
     )
 
@@ -80,9 +76,9 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='VAE Example')
-    parser.add_argument('--batch-size', type=int, default=1, metavar='N',
+    parser.add_argument('--batch-size', type=int, default=128, metavar='N',
                         help='input batch size for training (default: 128)')
-    parser.add_argument('--num-epochs', type=int, default=10, metavar='N',
+    parser.add_argument('--num-epochs', type=int, default=1000, metavar='N',
                         help='number of epochs to train (default: 10)')
 
     parser.add_argument('--checkpoint_every_epoch', type=int, default=10,
@@ -99,23 +95,10 @@ if __name__ == '__main__':
     parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                         help='how many batches to wait before logging ' \
                               'training status')
-    parser.add_argument('--expert-path', default='L_expert_trajectories/',
+    parser.add_argument('--expert-path', default='./h5_trajs/room_trajs/traj_len_16',
                         metavar='G',
                         help='path to the expert trajectory files')
-    parser.add_argument('--use_rnn_goal', type=int, default=1, choices=[0, 1],
-                        help='Use RNN as Q network to predict the goal.')
 
-    parser.add_argument('--use_goal_in_policy', type=int, default=0,
-                        choices=[0, 1],
-                        help='Give goal to policy network.')
-
-    parser.add_argument('--use_separate_goal_policy', type=int, default=0,
-                        choices=[0, 1],
-                        help='Use another decoder with goal input.')
-    #
-    parser.add_argument('--use_history_in_policy', type=int, default=0,
-                        choices=[0, 1],
-                        help='Use history of states in policy.')
 
     parser.add_argument('--cosine_similarity_loss_weight', type=float,
                         default=0, help='Use cosine loss for context.')
@@ -123,32 +106,19 @@ if __name__ == '__main__':
     # Arguments for VAE training
     parser.add_argument('--use_discrete_vae', dest='use_discrete_vae',
                         action='store_true', help='Use Discrete VAE.')
-    parser.add_argument('--no-use_discrete_vae', dest='use_discrete_vae',
-                        action='store_false', help='Do not Use Discrete VAE.')
-    parser.set_defaults(use_discrete_vae=False)
+    parser.set_defaults(use_discrete_vae=True)
 
     parser.add_argument('--vae_state_size', type=int, default=2,
                         help='State size for VAE.')
     parser.add_argument('--vae_action_size', type=int, default=4,
                         help='Action size for VAE.')
-    parser.add_argument('--vae_goal_size', type=int, default=4,
-                        help='Goal size for VAE.')
-    parser.add_argument('--vae_history_size', type=int, default=1,
-                        help='State history size to use in VAE.')
-    parser.add_argument('--vae_context_size', type=int, default=1,
+    parser.add_argument('--vae_context_size', type=int, default=10,
                         help='Context size for VAE.')
 
     # Temperature
     parser.add_argument('--temperature', type=float, default=1.0,
                         help='Discrete VAE temperature')
 
-    # Goal prediction
-    parser.add_argument('--flag_goal_pred', type=str, default='last_hidden',
-                        choices=['last_hidden', 'sum_all_hidden'],
-                        help='Type of network to use for goal prediction')
-    parser.add_argument('--train_goal_pred_only', type=int, default=0,
-                        choices=[0, 1],
-                        help='Train goal prediction part of network only.')
 
     # Use features
     parser.add_argument('--use_state_features', dest='use_state_features',
@@ -162,15 +132,7 @@ if __name__ == '__main__':
 
     # Use boundary
     parser.add_argument('--use_boundary', action='store_true')
-    # Use velocity in history
-    parser.add_argument('--use_velocity_features', dest='use_velocity_features',
-                        action='store_true',
-                        help='Use velocity instead of direct (x,y) history values in VAE')
-    parser.add_argument('--no-use_velocity_features', dest='use_velocity_features',
-                        action='store_false',
-                        help='Do not use velocity instead of direct (x,y) history' \
-                              'values in VAE')
-    parser.set_defaults(use_velocity_features=False)
+    parser.set_defaults(use_boundary=True)
 
     # Logging flags
     parser.add_argument('--log_gradients_tensorboard',
@@ -182,7 +144,7 @@ if __name__ == '__main__':
     parser.set_defaults(log_gradients_tensorboard=True)
 
     # Results dir
-    parser.add_argument('--results_dir', type=str, required=True,
+    parser.add_argument('--results_dir', type=str, default='./results/vae/room_traj/discrete/traj_room_centre_len_16',
                         help='Directory to save final results in.')
     # Checkpoint directory to load pre-trained models.
     parser.add_argument('--checkpoint_path', type=str, default='',
@@ -191,10 +153,6 @@ if __name__ == '__main__':
                         help='pre-trained models to finetune.')
     parser.add_argument('--results_pkl_path', default='./results/test_predict/room_traj/context_4/pred_result_cp_1000.pth')
 
-    # Model arguments
-    parser.add_argument('--stacked_lstm', type=int, choices=[0, 1], default=1,
-                        help='Use stacked LSTM for Q network.')
-
     # Action - discrete or continuous
     parser.add_argument('--discrete_action', dest='discrete_action',
                         action='store_true',
@@ -202,15 +160,13 @@ if __name__ == '__main__':
     parser.add_argument('--continuous_action', dest='discrete_action',
                         action='store_false',
                         help='actions are continuous, use MSE loss')
-    parser.set_defaults(discrete_action=False)
+    parser.set_defaults(discrete_action=True)
 
     # Environment - Grid or Mujoco
-    parser.add_argument('--env-type', default='grid', 
+    parser.add_argument('--env-type', default='grid_room', 
                         choices=['grid', 'grid_room', 'mujoco', 'gym', 'circle',
                                  'mujoco_custom'],
                         help='Environment type Grid or Mujoco.')
-    parser.add_argument('--env-name', default=None,
-                        help='Environment name if Mujoco.')
 
     # Mode to run algorithm
     parser.add_argument('--run_mode', type=str, default='train',
@@ -218,13 +174,17 @@ if __name__ == '__main__':
                                  'train_goal_pred', 'test_goal_pred'],
                         help='Mode to run in.')
     # Expert batch episode length
-    parser.add_argument('--episode_len', type=int, default=6,
+    parser.add_argument('--episode_len', type=int, default=16,
                         help='Fixed episode length for batch training.')
 
     parser.add_argument('--lambda_policy', type=float, default=1., help='coefficient for BC loss')
-    parser.add_argument('--lambda_kld', type=float, default=.1, help='coefficient for KLDistance loss')
+    parser.add_argument('--lambda_kld', type=float, default=10., help='coefficient for KLDistance loss')
     parser.add_argument('--lambda_d_adjacent', type=float, default=1., help='coefficient for adjacent Distance loss')
-
+    parser.add_argument('--warmup_epochs', type=int, default=300)
+    
+    # model_selection
+    parser.add_argument('--use_lstm_transition', action='store_true')
+    
     args = parser.parse_args()
     if args.cuda and not torch.cuda.is_available():
         args.cuda = False

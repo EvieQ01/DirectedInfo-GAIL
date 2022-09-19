@@ -18,7 +18,6 @@ from grid_world import create_obstacles
 from plot_utils import plot_pickle_results_context
 
 import grid_world as gw
-import circle_world as cw
 from load_expert_traj import Expert, ExpertHDF5, CircleExpertHDF5
 # from load_expert_traj import recursively_save_dict_contents_to_group
 # from itertools import product

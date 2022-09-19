@@ -11,7 +11,8 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "cwd":"${workspaceFolder}/IL"
+            "cwd":"${workspaceFolder}/IL",
+            "args": ["--use_discrete_vae", "--discrete_action"]
         }
     ]
 }

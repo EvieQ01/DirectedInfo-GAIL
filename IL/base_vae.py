@@ -1,6 +1,7 @@
 
 import pdb
-from base_models import Policy, Posterior, DiscretePosterior, DiscreteLSTMPosterior, Transition
+from base_models import TransitionLSTM
+from base_models import Policy, Posterior, DiscretePosterior, DiscreteLSTMPosterior, Transition, DiscretePolicy
 import torch.nn as nn
 import torch
 from torch.autograd import Variable
@@ -13,13 +14,9 @@ class VAE(nn.Module):
                  policy_state_size=1, posterior_state_size=1,
                  policy_action_size=1, posterior_action_size=1,
                  policy_latent_size=1, posterior_latent_size=1,
-                 posterior_goal_size=1,
                  policy_output_size=1,
-                 history_size=1,
                  hidden_size=64,
-                 use_goal_in_policy=True,
-                 use_separate_goal_policy=True,
-                 use_history_in_policy=False, use_boundary=False, args=None):
+                use_boundary=False, args=None):
         '''
         state_size: State size
         latent_size: Size of 'c' variable
@@ -29,53 +26,41 @@ class VAE(nn.Module):
         super(VAE, self).__init__()
 
         self.args = args
-        self.history_size = history_size
         self.policy_state_size = policy_state_size
         self.posterior_latent_size = posterior_latent_size
-        self.posterior_goal_size = posterior_goal_size
-        self.use_goal_in_policy = use_goal_in_policy
-        self.use_separate_goal_policy = use_separate_goal_policy
-        self.use_history_in_policy = use_history_in_policy
         self.use_boundary = use_boundary
 
         self.policy_latent_size = policy_latent_size
-        if use_goal_in_policy:
-            self.policy_latent_size += posterior_goal_size
 
         #if args.discrete:
         #    output_activation='sigmoid'
         #else:
         output_activation=None
 
-        if use_history_in_policy:
-            policy1_state_size = policy_state_size * history_size
-        else:
-            policy1_state_size = policy_state_size
+        policy1_state_size = policy_state_size
+        # policy_class = DiscretePolicy if args.discrete_action else Policy
+        policy_class = Policy
 
-        self.policy = Policy(state_size=policy1_state_size,
+        self.policy = policy_class(state_size=policy1_state_size,
                              action_size=policy_action_size,
                              latent_size=self.policy_latent_size,
                              output_size=policy_output_size,
                              hidden_size=hidden_size,
                              output_activation=output_activation)
 
-        if use_separate_goal_policy:
-            self.policy_goal = Policy(
-                    state_size=policy_state_size*self.history_size,
-                    action_size=policy_action_size,
-                    latent_size=posterior_goal_size,
-                    output_size=policy_output_size,
-                    hidden_size=hidden_size,
-                    output_activation=output_activation)
+        output_activation=output_activation
 
         self.posterior = Posterior( # input (s, a, c)
-                state_size=posterior_state_size*self.history_size,
+                state_size=posterior_state_size,
                 action_size=posterior_action_size,
-                latent_size=posterior_latent_size+posterior_goal_size,
+                latent_size=posterior_latent_size,
                 output_size=posterior_latent_size,
                 hidden_size=hidden_size)
-
-        self.transition = Transition(latent_size=posterior_latent_size) #(10 -> 10)
+        if args.use_lstm_transition:
+            self.transition = TransitionLSTM(latent_size=posterior_latent_size, state_size=posterior_state_size) #(10 + 2-> 10)
+        else:
+            self.transition = Transition(latent_size=posterior_latent_size) #(10 -> 10)
+        # self.transition = nn.LSTMCell(posterior_latent_size, posterior_latent_size) #(10 -> 10)
     # def encode(self, x, c):
     #     return self.posterior(torch.cat((x, c), 1))
 
@@ -101,26 +86,14 @@ class VAE(nn.Module):
 
         return action_mean
 
-    def forward(self, x, c, g, only_goal_policy=False):
-        if only_goal_policy: # False
-            decoder_output_2 = self.decode_goal_policy(x, g)
-            # Return a tuple as the else part below. Caller should expect a
-            # tuple always.
-            return decoder_output_2,
-        else:
-            mu, logvar = self.encode(x, c)
-            c[:,-self.posterior_latent_size:] = self.reparameterize(mu, logvar)
+    def forward(self, x, c, g):
+        mu, logvar = self.encode(x, c)
+        c[:,-self.posterior_latent_size:] = self.reparameterize(mu, logvar)
 
-            decoder_output_1 = None
-            decoder_output_2 = None
+        decoder_output_1 = None
+        decoder_output_2 = None
 
-
-
-        if self.use_history_in_policy:
-            decoder_output_1 = self.decode(
-                    x, c[:,-self.posterior_latent_size:])
-        else:
-            decoder_output_1 = self.decode(
+        decoder_output_1 = self.decode(
                     x[:, :, -self.policy_state_size:],
                     c[:, :, -self.posterior_latent_size:])
 
@@ -151,7 +124,7 @@ class DiscreteVAE(VAE):
             )
         else:
             self.posterior = DiscretePosterior(
-                state_size=kwargs['posterior_state_size']*self.history_size,
+                state_size=kwargs['posterior_state_size'],
                 action_size=kwargs['posterior_action_size'],
                 latent_size=kwargs['posterior_latent_size'],
                 output_size=kwargs['posterior_latent_size'],
@@ -165,10 +138,10 @@ class DiscreteVAE(VAE):
 
     def update_temperature(self, epoch):
         '''Update temperature.'''
-        r = 5e-4  # will become 1.0 after 3000 epochs 
+        # r = 5e-4  # will become 1.0 after 3000 epochs 
         # r = 33e-4 will become 1.0 after 500 epochs and 0.18 after 1000 epochs.
         # r = 0.023 # Will become 0.1 after 100 epochs if initial temp is 1.0
-        # r = 0.011 # Will become 0.1 after 200 epochs if initial temp is 1.0
+        r = 0.011 # Will become 0.1 after 200 epochs if initial temp is 1.0
         self.temperature = max(0.1, self.init_temperature * math.exp(-r*epoch))
 
 

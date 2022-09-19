@@ -157,7 +157,7 @@ class DiscreteLSTMPosterior(nn.Module):
                  hidden_size=1,
                  output_size=1):
         super(DiscreteLSTMPosterior, self).__init__()
-        self.input_size = state_size + latent_size # s+ c =12
+        self.input_size = state_size # s+ c =12
         self.state_size = state_size
         self.action_size = action_size
         self.latent_size = latent_size
@@ -220,10 +220,24 @@ class Transition(nn.Module):
 
         self.input_size = latent_size
         self.hidden_size = hidden_size
-
         self.affine1 = nn.Linear(self.input_size, hidden_size)
         self.affine2 = nn.Linear(hidden_size, latent_size)
+
 
     def forward(self, x):
         x = F.relu(self.affine1(x))
         return self.affine2(x)
+
+class TransitionLSTM(nn.Module):
+    def __init__(self, latent_size, hidden_size=64, state_size=2):
+        super(Transition, self).__init__()
+
+        self.input_size = latent_size + state_size # 10 + 2
+        self.hidden_size = hidden_size
+
+        self.encoder = nn.LSTM(hidden_size=self.hidden_size, input_size=self.input_size, batch_first=True, num_layers=2) #N, L , H_in
+
+    def forward(self, x):
+        output, (h_n, c_n) = self.encoder(x) # h, c shape as (2, 1, hidden), 2 for 2 layers
+        return self.output(output[-1]) # return (h_n, c_n) for last timestep
+        # return self.affine2(x)

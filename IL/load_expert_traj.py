@@ -137,6 +137,7 @@ class ExpertHDF5(Expert):
         self.set_diff = None
         self.num_goals, self.num_actions = 0, 0
         self.last_indices_sampled = None
+        self.memory_count = 0
 
     def push(self, only_coordinates_in_state=False, one_hot_action=True):
         h5_file = os.path.join(self.expert_dir, 'expert_traj.h5')
@@ -151,6 +152,7 @@ class ExpertHDF5(Expert):
         for k in sorted(h5f['expert_traj'].keys()): 
             # len(h5f['expert_traj'].keys()) = 300
             state = np.array(h5f['expert_traj'][k]['state'], dtype=np.float32) # (50, 2)
+            self.memory_count += state.shape[0]
             # Just keep the (x, y) coordinates in state i.e. remove the features
             if only_coordinates_in_state:
                 state = state[:, :2]

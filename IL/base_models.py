@@ -13,19 +13,14 @@ def square(a):
 class Policy(nn.Module):
 
     def __init__(self,
-                 state_size=1,
-                 action_size=1,
-                 latent_size=0,
+                 input_size=1,
                  output_size=1,
                  hidden_size=64,
                  hidden_activation=F.tanh,
                  output_activation=None):
         super(Policy, self).__init__()
 
-        self.input_size = state_size + latent_size
-        self.state_size = state_size
-        self.action_size = action_size
-        self.latent_size = latent_size
+        self.input_size = input_size
         self.output_size = output_size
         self.hidden_size = hidden_size
         self.output_activation = output_activation
@@ -58,22 +53,17 @@ class Policy(nn.Module):
 
 class DiscretePolicy(nn.Module):
     def __init__(self,
-                 state_size=1,
-                 action_size=1,
+                 input_size=12,
                  latent_size=0,
                  output_size=1,
                  hidden_size=64,
-                 hidden_activation=F.tanh,
-                 output_activation=None):
+                 hidden_activation=torch.tanh):
         super(DiscretePolicy, self).__init__()
 
-        self.input_size = state_size + action_size + latent_size
-        self.state_size = state_size
-        self.action_size = action_size
+        self.input_size = input_size
         self.latent_size = latent_size
         self.output_size = output_size
         self.hidden_size = hidden_size
-        self.output_activation = output_activation
 
         self.affine1 = nn.Linear(self.input_size, self.hidden_size)
         self.affine2 = nn.Linear(self.hidden_size, self.hidden_size)
@@ -87,9 +77,9 @@ class DiscretePolicy(nn.Module):
         x = self.h_activation(self.affine1(x))
         x = self.h_activation(self.affine2(x))
         x = x + torch.tensor([1e-10], requires_grad=True).type(x.type())
-        action = F.softmax(self.action_mean(x), dim=1)
+        # action = F.softmax(self.action_mean(x), dim=1)
 
-        return action
+        return self.action_mean(x)
 
     def select_action(self, x):
         action_prob = self.forward(x)
@@ -103,14 +93,11 @@ class DiscretePolicy(nn.Module):
 
 class Posterior(nn.Module):
 
-    def __init__(self, state_size, action_size, latent_size, hidden_size,
+    def __init__(self, input_size, hidden_size,
                  output_size=1):
         super(Posterior, self).__init__()
 
-        self.input_size = state_size + action_size + latent_size
-        self.state_size = state_size
-        self.action_size = action_size
-        self.latent_size = latent_size
+        self.input_size = input_size
         self.hidden_size = hidden_size
 
         self.affine1 = nn.Linear(self.input_size, self.hidden_size)
@@ -126,17 +113,12 @@ class Posterior(nn.Module):
 
 class DiscretePosterior(nn.Module):
     def __init__(self,
-                 state_size=1,
-                 action_size=1,
-                 latent_size=1,
-                 hidden_size=1,
-                 output_size=1):
+                 input_size=20,
+                 hidden_size=64,
+                 output_size=2):
         super(DiscretePosterior, self).__init__()
 
-        self.input_size = state_size + action_size + latent_size
-        self.state_size = state_size
-        self.action_size = action_size
-        self.latent_size = latent_size
+        self.input_size = input_size
         self.hidden_size = hidden_size
 
         self.affine1 = nn.Linear(self.input_size, self.hidden_size)
@@ -151,27 +133,24 @@ class DiscretePosterior(nn.Module):
 
 class DiscreteLSTMPosterior(nn.Module):
     def __init__(self,
-                 state_size=1,
-                 action_size=1,
-                 latent_size=1,
+                 input_size=12,
                  hidden_size=1,
                  output_size=1):
         super(DiscreteLSTMPosterior, self).__init__()
-        self.input_size = state_size # s+ c =12
-        self.state_size = state_size
-        self.action_size = action_size
-        self.latent_size = latent_size
+        self.input_size = input_size # s+ c =12
         self.hidden_size = hidden_size
         self.encoder = nn.LSTM(hidden_size=self.hidden_size, input_size=self.input_size, batch_first=True, num_layers=2) #N, L , H_in
         # self.affine1 = nn.Linear(self.input_size, self.hidden_size)
         # self.affine2 = nn.Linear(self.hidden_size, self.hidden_size)
         self.output = nn.Linear(self.hidden_size, output_size)
 
-    def forward(self, x):
-        # x = (B, L, D_in) = (1, history, 12)
+    def forward(self, x, c_prev):
+        # x = (B, L, D_in) = (1, 6, 2)
+        # c = (B, D) = (1 , 10)
         # pdb.set_trace()
-        output, (h_n, c_n) = self.encoder(x) # h, c shape as (2, 1, hidden)
-        return self.output(c_n[-1]) # 2 for 2 layers
+        duplicate_c = c_prev.repeat(1, x.shape[-2], 1)
+        output, (h_n, c_n) = self.encoder(torch.cat((x, duplicate_c), -1)) # h, c shape as (2, 1, hidden)
+        return self.output(h_n[-1]) # 2 for 2 layers
 
 class Value(nn.Module):
     def __init__(self, state_size, hidden_size=64):

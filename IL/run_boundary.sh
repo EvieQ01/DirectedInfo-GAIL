@@ -1,8 +1,7 @@
 # For discrete environment
 history=1
 context=10
-kld=1.
-adjd=10.0
+kld=10.
 datapath=traj_room_centre_len_16
 datapath=traj_len_16
 
@@ -10,7 +9,7 @@ cp_path=context_${context}_history_${history}_kld_${kld} #_adjd_${adjd}
 
 python main_boundary_vae.py \
   --num-epochs 1000 \
-  --warmup_epochs 400 \
+  --warmup_epochs 200 \
   --vae_state_size 2 \
   --vae_action_size 4 \
   --no-use_state_features \
@@ -25,7 +24,7 @@ python main_boundary_vae.py \
   --seed 0 \
   --env-type grid_room \
   --use_boundary \
-  --cuda \
+  --batch-size 32 --wandb --cuda \
   --lambda_kld ${kld} | tee logs/${cp_path}.log 
   # --vae_history_size ${history} \
   # --use_history_in_policy 1

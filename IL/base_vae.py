@@ -12,7 +12,7 @@ import math
 class VAE(nn.Module):
     def __init__(self,
                  policy_state_size=1, posterior_state_size=1,
-                 policy_action_size=1, posterior_action_size=1,
+                 dynamics_state_size=1,
                  policy_latent_size=1, posterior_latent_size=1,
                  policy_output_size=1,
                  hidden_size=64,
@@ -35,31 +35,8 @@ class VAE(nn.Module):
         #if args.discrete:
         #    output_activation='sigmoid'
         #else:
-        output_activation=None
 
-        policy1_state_size = policy_state_size
         # policy_class = DiscretePolicy if args.discrete_action else Policy
-        policy_class = Policy
-
-        self.policy = policy_class(state_size=policy1_state_size,
-                             action_size=policy_action_size,
-                             latent_size=self.policy_latent_size,
-                             output_size=policy_output_size,
-                             hidden_size=hidden_size,
-                             output_activation=output_activation)
-
-        output_activation=output_activation
-
-        self.posterior = Posterior( # input (s, a, c)
-                state_size=posterior_state_size,
-                action_size=posterior_action_size,
-                latent_size=posterior_latent_size,
-                output_size=posterior_latent_size,
-                hidden_size=hidden_size)
-        if args.use_lstm_transition:
-            self.transition = TransitionLSTM(latent_size=posterior_latent_size, state_size=posterior_state_size) #(10 + 2-> 10)
-        else:
-            self.transition = Transition(latent_size=posterior_latent_size) #(10 -> 10)
         # self.transition = nn.LSTMCell(posterior_latent_size, posterior_latent_size) #(10 -> 10)
     # def encode(self, x, c):
     #     return self.posterior(torch.cat((x, c), 1))
@@ -114,22 +91,33 @@ class DiscreteVAE(VAE):
         output_size:
         '''
         super(DiscreteVAE, self).__init__(**kwargs)
-        if kwargs['use_boundary']:
-            self.posterior = DiscreteLSTMPosterior(
-                    state_size=kwargs['posterior_state_size'],
-                    action_size=kwargs['posterior_action_size'],
-                    latent_size=kwargs['posterior_latent_size'],
-                    output_size=kwargs['posterior_latent_size'],
-                    hidden_size=kwargs['hidden_size'],
-            )
-        else:
-            self.posterior = DiscretePosterior(
-                state_size=kwargs['posterior_state_size'],
-                action_size=kwargs['posterior_action_size'],
-                latent_size=kwargs['posterior_latent_size'],
+        self.posterior = DiscreteLSTMPosterior(
+                input_size=kwargs['posterior_state_size'] + kwargs['posterior_latent_size'],
                 output_size=kwargs['posterior_latent_size'],
                 hidden_size=kwargs['hidden_size'],
         )
+        # (\tau_j | c_j-1, c_j)
+        self.Q_alpha =  DiscretePosterior(
+                input_size=2 * kwargs['posterior_latent_size'] + kwargs['posterior_state_size'] + kwargs['policy_output_size'], 
+                output_size=kwargs['dynamics_state_size'],
+                hidden_size=kwargs['hidden_size'],
+        )
+
+        # (\tau_j |c_j)
+        self.Q_gamma =  DiscretePosterior(
+                input_size=kwargs['posterior_latent_size'] + kwargs['posterior_state_size']+ kwargs['policy_output_size'],
+                output_size=kwargs['dynamics_state_size'],
+                hidden_size=kwargs['hidden_size'],
+        )
+        policy_class = DiscretePolicy
+        self.policy = policy_class(input_size=kwargs['posterior_latent_size'] + kwargs['posterior_state_size'],
+                             output_size=kwargs['policy_output_size'],
+                             hidden_size=kwargs['hidden_size'])
+
+        # if args.use_lstm_transition:
+        #     self.transition = TransitionLSTM(latent_size=posterior_latent_size, state_size=posterior_state_size) #(10 + 2-> 10)
+        # else:
+        self.transition = Transition(latent_size=kwargs['posterior_latent_size']) #(10 -> 10)
         self.encoder_softmax = nn.Softmax(dim=1)
         self.temperature = temperature
         self.init_temperature = temperature

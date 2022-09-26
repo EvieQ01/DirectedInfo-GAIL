@@ -51,7 +51,7 @@ def create_obstacles(width, height, env_name=None, room_size=None):
 
     obstacles = list(all_cells - set(room_cells) - set(corridor_cells))
 
-    return obstacles, room_cells, room_centres
+    return obstacles, room_cells , room_centres
 
   else:
     return []

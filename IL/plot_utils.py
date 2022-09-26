@@ -72,9 +72,9 @@ def plot_trajectory(traj_data, grid_size,
     else:
         context_colors = ['g']
 
+    pred_contexts = []
     for i in range(traj_data.shape[0]):
         x, y = traj_data[i, 0], traj_data[i, 1]
-        print("true:",x, y)
         marker = '.' if i > 0 else '*'
         if show_expert:
             ax.scatter(x=x + 0.5, y=y + 0.5, c='r',
@@ -84,12 +84,14 @@ def plot_trajectory(traj_data, grid_size,
             pred_x, pred_y = pred_traj_data[i, 0], pred_traj_data[i, 1]
             pred_color = context_colors[0]
             if len(context_colors) > 1:
-                print('pred context', np.argmax(pred_context[i]))
                 assert np.argmax(pred_context[i]) < len(context_colors)
                 pred_color = context_colors[np.argmax(pred_context[i])]
+                pred_contexts.append(np.argmax(pred_context[i]))
                 
             ax.scatter(x=pred_x + 0.5, y=pred_y + 0.75, c=pred_color,
                        s=120, marker=marker, edgecolors='none')
+    print("true:",traj_data)
+    print('pred context', pred_contexts)
 
     if len(save_path) > 0:
         fig.savefig(save_path)

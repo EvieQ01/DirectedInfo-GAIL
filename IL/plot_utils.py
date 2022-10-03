@@ -39,7 +39,6 @@ def get_multiple_traj_idx_from_goal_list(goal_list):
 def plot_trajectory(traj_data, grid_size,
                     pred_traj_data=None,
                     obstacles=None,
-                    rooms=None,
                     pred_context=[],
                     pred_context_discrete=False,
                     bounds=[-100, -.5, .5, 100],

@@ -76,30 +76,31 @@ class sub_traj_dataset():
             return self._turn_xy_posi_to_onehot_single(traj)
 
     def _turn_xy_posi_to_onehot_single(self, sub_traj)-> Tensor:
-        onehot_sub_traj = torch.zeros((len(sub_traj), len(self.set_diff)))
+        onehot_sub_traj = torch.zeros(len(sub_traj))#, len(self.set_diff)))
         for j in range(len(sub_traj)):
             xy_posi = sub_traj[j]
             # indices
             ind = self.set_diff.index(xy_posi.type(torch.int64).tolist())
             # turn into one_hot
-            onehot_sub_traj[j] = F.one_hot(torch.tensor(ind), num_classes=len(self.set_diff))
+            onehot_sub_traj[j] = torch.tensor(ind)#, num_classes=len(self.set_diff)
         return onehot_sub_traj
 
-    # def sample_padded_batch(self):
-    #     if self.current_sample_index + self.batch_size >= self.size:
-    #         random.shuffle(self.all_sub_traj)
-    #         self.current_sample_index = 0
-    #     sub_trajs = self.all_sub_traj[self.current_sample_index : self.current_sample_index + self.batch_size]
-    #     # padd to same length
-    #     sub_traj_padded = pad_sequence(sub_trajs, batch_first=True) # (B, max_L, dim(S))
-    #     # genearte mask
-    #     mask = torch.ones(self.batch_size, sub_traj_padded.shape[1])
-    #     for i in range(len(sub_trajs)):
-    #         mask[i, sub_trajs[i].shape[0]:] = 0 # indices larger than true sequence length set to 0.
+    def sample_padded_batch(self):
+        if self.current_sample_index + self.batch_size >= self.size:
+            random.shuffle(self.all_sub_traj)
+            self.current_sample_index = 0
+        sub_trajs = self.all_sub_traj[self.current_sample_index : self.current_sample_index + self.batch_size]
+        # padd to same length
+        sub_traj_padded = pad_sequence([s_ind_list[0] for s_ind_list in sub_trajs], batch_first=True, padding_value=len(self.set_diff)) # (B, max_L, dim(S))
+        # # genearte mask
+        # mask = torch.ones(self.batch_size, sub_traj_padded.shape[1])
+        # for i in range(len(sub_trajs)):
+        #     mask[i, sub_trajs[i].shape[0]:] = 0 # indices larger than true sequence length set to 0.
 
-    #     self.current_sample_index += self.batch_size
-    #     # (B, max_L, dim(S)), (B, max_len)
-    #     return sub_traj_padded, mask
+        boundary_index = torch.tensor([s_ind_list[1] for s_ind_list in sub_trajs]) # B, 2
+        self.current_sample_index += self.batch_size
+        # (B, max_L, dim(S)), (B, max_len)
+        return sub_traj_padded, boundary_index#, mask
 
     def sample_packed_batch(self):
         if self.current_sample_index + self.batch_size >= self.size:
@@ -163,18 +164,21 @@ def noise_sample(dis_c_dim, z_dim, batch_size, dtype):
 
     """
 
-    z = torch.randn(batch_size, z_dim)
+    # z = torch.randn(batch_size, z_dim)
 
-    idx = np.zeros((batch_size))
-    dis_c = torch.zeros(batch_size, dis_c_dim)
+    # idx = np.zeros((batch_size))
+    # dis_c = torch.zeros(batch_size, dis_c_dim)
     
-    idx = np.random.randint(dis_c_dim, size=batch_size)
-    dis_c[torch.arange(0, batch_size),  idx] = 1.0
+    # idx = np.random.randint(dis_c_dim, size=batch_size)
+    # dis_c[torch.arange(0, batch_size),  idx] = 1.0
 
-    dis_c = dis_c.view(batch_size, -1)
+    # dis_c = dis_c.view(batch_size, -1)
 
-    noise = z
-    noise = torch.cat((z, dis_c), dim=1).type(dtype=dtype)
+    # noise = z
+    # noise = torch.cat((z, dis_c), dim=1).type(dtype=dtype)
 
-    return noise, idx
+    c_idx = np.random.randint(dis_c_dim, size=batch_size)
+    z_idx = np.random.randint(z_dim, size=batch_size)
+    # return noise, idx
+    return torch.tensor(z_idx), torch.tensor(c_idx)
 

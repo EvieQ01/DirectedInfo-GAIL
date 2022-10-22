@@ -13,6 +13,16 @@
             "justMyCode": true,
             "cwd":"${workspaceFolder}/IL",
             "args": ["--use_discrete_vae", "--discrete_action"]
+        },
+        {
+            "name": "Python: infoGAN",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "cwd":"${workspaceFolder}/infoGAN_room",
         }
+
     ]
 }

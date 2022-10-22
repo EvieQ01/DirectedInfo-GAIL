@@ -60,3 +60,7 @@ IL/plots/.ipynb_checkpoints/
 RL/assets/learned_models/
 
 IL/h5_trajs/
+
+# 
+wandb/
+*.png

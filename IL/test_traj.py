@@ -1,4 +1,8 @@
-
+import cv2
+# from cv2 import imwrite
+# img=cv2.imread('/Users/evieq/Desktop/HistoryFiles/Personal/Common Material/自动化系-自92-邱亦文.jpg')
+# img.resize((1071, 1170 ),interpolation = cv2.INTER_NEAREST)
+# imwrite('/Users/evieq/Desktop/my.jpg',img)
 import pdb
 from load_expert_traj import Expert, ExpertHDF5, CircleExpertHDF5
 from boundary_utils import get_boundary_from_all_traj

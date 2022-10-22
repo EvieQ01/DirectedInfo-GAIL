@@ -2,13 +2,14 @@ import os
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
+import wandb
 
-def plot_trajectory(traj_context_data, grid_size,
+def plot_trajectory(eposode, traj_context_data, grid_size,
                     color_map=['black', 'grey', 'red'],
                     figsize=(6,6),
                     obstacles=None,
                     bounds=[-100, -.5, .5, 100],
-                    save_path=''):
+                    save_path='', wandb_log_stamp=False):
     cmap = matplotlib.colors.ListedColormap(color_map)
     norm = matplotlib.colors.BoundaryNorm(bounds, cmap.N)
 
@@ -50,9 +51,15 @@ def plot_trajectory(traj_context_data, grid_size,
         print('pred context', pred_contexts)
 
         if len(save_path) > 0:
-            single_fig_path = os.path.join(save_path, f'test_context_for_traj{i}.png')
-            # os.makedirs(single_fig_path)
             fig.tight_layout()
-            fig.savefig(single_fig_path)
+            if wandb_log_stamp:
+                single_fig_path = os.path.join(save_path, f'{wandb_log_stamp}_test_context_for_traj{i}.png')
+                fig.savefig(single_fig_path)
+                img = wandb.Image(single_fig_path)
+                wandb.log({f"episode{eposode}": img})
+            else:
+                single_fig_path = os.path.join(save_path, f'{wandb_log_stamp}_test_context_for_traj{i}.png')
+                fig.savefig(single_fig_path)
+            # os.makedirs(single_fig_path)
             plt.close(fig)
     

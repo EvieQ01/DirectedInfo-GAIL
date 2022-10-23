@@ -1,4 +1,5 @@
 import os
+import pdb
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
@@ -17,8 +18,9 @@ def plot_trajectory(eposode, traj_context_data, grid_size,
     context_colors = ['g', 'blue', 'y', 'black', 'k', 'w','c', 'm', 'red','orange']
     
     i = 0
-    states = traj_context_data['true_traj_state']
-    context = traj_context_data['pred_context']
+    states = traj_context_data['true_traj_state'] # num, len, 2
+    context = traj_context_data['pred_context']# num, len, 10
+    # pdb.set_trace()
     for i in range(len(states)):
         traj = states[i] # (num_sample, len, dim=2)
         fig = plt.figure(figsize=figsize)

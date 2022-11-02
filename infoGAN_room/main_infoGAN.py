@@ -14,19 +14,17 @@ from torch.nn import functional as F
 import sys
 
 from models import Encoder
-sys.path.append('../IL')
-from boundary_utils import get_boundary_from_all_traj
-import grid_world as gw
-from load_expert_traj import Expert, ExpertHDF5
+from utils.boundary_utils import get_boundary_from_all_traj
+from utils.load_expert_traj import Expert, ExpertHDF5
 
 # from utils.logger import Logger, TensorboardXLogger
-from dataset_utils import sub_traj_dataset, noise_sample
+from utils.dataset_utils import sub_traj_dataset, noise_sample
 import time
 from tqdm import trange
 from models import Generator, Discriminator, QHead
 from torch.nn.utils.rnn import pad_packed_sequence
 from torch.nn.utils.rnn import pack_padded_sequence
-from plot_utils import plot_trajectory
+from utils.plot_utils import plot_trajectory
 import seaborn as sns
 import wandb
 def main(args):
@@ -131,11 +129,16 @@ def main(args):
             mask = mask + mask.T
             
             q_logits_detach = netQ(fake_data_feat.detach()) 
+            # adjascent sequences.
             dist = torch.softmax(q_logits_detach, dim=-1).unsqueeze(0) - torch.softmax(q_logits_detach, dim=-1).unsqueeze(1) # B, B , dim_c
             # dist = q_logits_detach.unsqueeze(0) - q_logits_detach.unsqueeze(1) # B, B , dim_c
             dist_loss = torch.sqrt(torch.mean(torch.sum(dist*dist, dim=-1)* mask.type(dtype) / 2 ) ) 
             # Net loss for generator.
-            G_loss = gen_loss * args.lambda_gen + posterior_loss * args.lambda_post + 1 / (dist_loss + 1e-5) * args.lambda_dist
+            # [2] negative distance loss
+            G_loss = gen_loss * args.lambda_gen + posterior_loss * args.lambda_post - (dist_loss ) * args.lambda_dist
+            # [1] 1 / distance loss
+            # G_loss = gen_loss * args.lambda_gen + posterior_loss * args.lambda_post + 1 / (dist_loss + 1e-5) * args.lambda_dist
+            
             # Calculate gradients.
             # pdb.set_trace()
             G_loss.backward()
@@ -156,7 +159,8 @@ def main(args):
                     train_dict = {'debug/D_loss': D_loss.item(),
                                     'debug/G_loss': G_loss.item(), 
                                     'debug/gen_loss': gen_loss.item(), 
-                                    'debug/posterior_loss': posterior_loss.item(), }
+                                    'debug/posterior_loss': posterior_loss.item(),
+                                    'debug/distance_loss': dist_loss.item(), }
                     wandb.log(train_dict)
 
         # testing
@@ -302,7 +306,7 @@ if __name__ == '__main__':
     parser.add_argument('--wandb', action='store_true', help='whether save on wandb')
     parser.add_argument('--teacher_force', action='store_true', help='whether use true state in RNN generator')
     args = parser.parse_args()
-    now = time.strftime(f"Gen{args.lambda_gen}_Post{args.lambda_post}_Dist{args.lambda_dist}"+"%Y-%m-%d-%H_%M_%S", time.localtime(time.time()))
+    now = time.strftime(f"Gen{args.lambda_gen}_Post{args.lambda_post}_Dist{args.lambda_dist}-"+"%Y-%m-%d-%H_%M_%S", time.localtime(time.time()))
     
     if args.wandb:
         wandb.init(project="infoGAN_grid_room", entity="evieq01")

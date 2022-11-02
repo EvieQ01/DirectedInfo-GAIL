@@ -102,7 +102,7 @@ class Generator(nn.Module):
 			# # EOS后面全是PAD. 下面一行保证一旦遇到EOS接下来的循环中mask就一直是0
 			# mask = mask * (x_step != out_vocab['EOS']).float()
 			step += 1
-		return torch.stack(out_seq).permute(1, 0, 2) # return (B, L, embed), (B, Len, embed)
+		return torch.stack(out_seq).permute(1, 0, 2) # return (L, B, embed), (B, Len, embed)
 	# class Generator(nn.Module):
 # 	def __init__(self, hidden_size=128, input_size=12, max_len=10, output_size=2):
 # 		super().__init__()

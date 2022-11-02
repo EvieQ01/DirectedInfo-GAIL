@@ -25,4 +25,4 @@ elif 'room' in env:
 traj_expert = expert.sample_all()
 state_expert, action_expert, c_expert, _ = traj_expert
 # boundary = get_boundary_from_all_traj(state_expert)
-boundary = get_boundary_from_all_traj_continuous(state_expert)
+boundary = get_boundary_from_all_traj_continuous(state_expert, delta_t=5, neighbor_k=10)

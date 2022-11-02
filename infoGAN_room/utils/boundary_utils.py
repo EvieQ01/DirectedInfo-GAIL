@@ -62,4 +62,39 @@ def get_boundary_from_all_traj(all_traj):
         if len(values.keys()) != 1 : # not only one (x', y') to go, then means multiple choices.
             boundary.append(xy_key)
     return boundary
+    
+def get_boundary_adjacent(all_traj):
+    boundary = []
+    boundary_adjacent = []
+    # boundary list
+    all_count_xy = get_all_count_dict(all_traj)
+    for xy_key in all_count_xy:
+        values = all_count_xy[xy_key]
+        if len(values.keys()) != 1 : # not only one (x', y') to go, then means multiple choices.
+            boundary.append(xy_key)
+    all_count_xy_reverse = get_all_count_dict_reverse(all_traj)
+    for xy_key in all_count_xy_reverse:
+        values = all_count_xy_reverse[xy_key]
+        if len(values.keys()) != 1 : # not only one (x', y') to go, then means multiple choices.
+            boundary.append(xy_key)
+    # from boundary_list get tuple (boundary_state, boundary+1_state)
+    for xy_key in boundary:
+        values = all_count_xy[xy_key]
+        for next_xykey in values.keys():
+            boundary_adjacent.append([xy_key, next_xykey])
+    # pdb.set_trace()
+    print('=> boundary_adjacent: ', boundary_adjacent)
+    return boundary_adjacent
+
+def get_all_adjacent(all_traj):
+    all_adjacent = []
+    # boundary list
+    all_count_xy = get_all_count_dict(all_traj)
+    for xy_key in all_count_xy:
+        values = all_count_xy[xy_key]
+        for next_xykey in values.keys() : # not only one (x', y') to go, then means multiple choices.
+            all_adjacent.append([xy_key, next_xykey])
+    # pdb.set_trace()
+    print('=> all_adjacent: ', all_adjacent)
+    return all_adjacent
 

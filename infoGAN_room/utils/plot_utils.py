@@ -55,10 +55,12 @@ def plot_trajectory(eposode, traj_context_data, grid_size,
         if len(save_path) > 0:
             fig.tight_layout()
             if wandb_log_stamp:
-                single_fig_path = os.path.join(save_path, f'{wandb_log_stamp}_test_context_for_traj{i}.png')
-                fig.savefig(single_fig_path)
-                img = wandb.Image(single_fig_path)
-                wandb.log({f"episode{eposode}": img})
+                # single_fig_path = os.path.join(save_path, f'{wandb_log_stamp}_test_context_for_traj{i}.png')
+                # fig.savefig(single_fig_path)
+                # img = wandb.Image(single_fig_path)
+                # wandb.log({f"episode{eposode}": img})
+                wandb.log({f"episode{eposode}":wandb.Image(fig)})
+
             else:
                 single_fig_path = os.path.join(save_path, f'{wandb_log_stamp}_test_context_for_traj{i}.png')
                 fig.savefig(single_fig_path)

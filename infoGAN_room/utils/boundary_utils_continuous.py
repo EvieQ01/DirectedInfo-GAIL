@@ -168,7 +168,7 @@ def get_max_dist_for_all_states(all_traj, delta_t, neighbor_k):
     # all_entropy = np.array(all_states_H)
     all_entropy = np.max(np.stack((np.array(all_states_H), np.array(all_states_H_inverse)), axis=0), axis=0)
     all_entropy[all_entropy > 1] = 1.
-    all_entropy[all_entropy < 0.5] = 0.
+    # all_entropy[all_entropy < 0.5] = 0.
     # all_entropy -= all_entropy.min()
     # all_entropy /= all_entropy.max() # noramalized into [0, 1]
     plot_entropy(all_states=all_states, all_entropy=all_entropy, plot_title='divergence')
@@ -181,9 +181,11 @@ def get_boundary_from_all_traj_continuous(all_traj, delta_t=10, neighbor_k=10):
     input: list of (x, y), (N, L, 2) 
     output: list of (x, y), shape = (topk, 2)
     '''
-    boundary = []
-    all_entropy = get_H_for_all_states(all_traj=all_traj, delta_t=delta_t)
-    # all_max_dist = get_max_dist_for_all_states(all_traj=all_traj, delta_t=delta_t, neighbor_k=neighbor_k)
+    # boundary = []
+    # [1] Discarded: estimated entropy based
+    # all_entropy = get_H_for_all_states(all_traj=all_traj, delta_t=delta_t)
+    # [2] divergence
+    boundary = get_max_dist_for_all_states(all_traj=all_traj, delta_t=delta_t, neighbor_k=neighbor_k)
     # hist = np.histogram(a=all_entropy, bins=np.arange(0, 1, 0.1))
     # print(hist)
     # plot_entropy()

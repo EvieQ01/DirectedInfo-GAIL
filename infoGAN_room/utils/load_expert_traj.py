@@ -1,6 +1,5 @@
 import numpy as np
 from collections import namedtuple
-from utils.running_state import ZFilter
 import h5py
 import os
 import pdb

@@ -153,7 +153,7 @@ class sub_traj():
         self.sub_index = sub_index
 
 class dynamic_sub_traj_dataset():
-    def __init__(self, all_traj: tuple, max_len=10, batch_size=8, set_diff=None) -> None:
+    def __init__(self, all_traj: tuple, boundary_adjacent_list: list, all_adjacent_list:list,  max_len=10, batch_size=8, set_diff=None) -> None:
         '''
         all_traj: (N, L, Dim(s))
         '''
@@ -163,6 +163,11 @@ class dynamic_sub_traj_dataset():
         self.set_diff = set_diff.tolist()
         self.all_subtraj = []
         self.all_subtraj_ordered = []
+        # pdb.set_trace()
+        # xy_tuple is (end_state_of_ci, begin_state_of_ci+1)
+        self.boundary_adjacent_list = [[self.xy_2_index(xy_tuple[0]), self.xy_2_index(xy_tuple[1])] for xy_tuple in  boundary_adjacent_list]
+        self.all_adjacent_list = [[self.xy_2_index(xy_tuple[0]), self.xy_2_index(xy_tuple[1])] for xy_tuple in  all_adjacent_list]
+        
         self.origin_size = len(all_traj)
         # initialize with seq_len == 1
         for traj_index in range(self.origin_size):
@@ -170,7 +175,7 @@ class dynamic_sub_traj_dataset():
                 xy_posi = self.all_traj[traj_index][step]
                 # indices
                 # pdb.set_trace()
-                data = self.set_diff.index(xy_posi.astype(np.int64).tolist())
+                data = self.xy_2_index(xy_posi=xy_posi)
                 self.all_subtraj.append(sub_traj(data=torch.tensor(data).reshape((1)), traj_index=traj_index, sub_index=step))
         self.cur_size = len(self.all_subtraj)
         self.step_size = len(self.all_subtraj)
@@ -187,20 +192,34 @@ class dynamic_sub_traj_dataset():
         print('sample: ', self.all_subtraj[0].data)
         self.all_subtraj_ordered = deepcopy(self.all_subtraj)
         self.current_sample_index = 0
+    
+    def xy_2_index(self, xy_posi):
+        if isinstance(xy_posi, np.ndarray):
+            return self.set_diff.index(xy_posi.astype(np.int64).tolist())
+        else:# tuple or list
+            return self.set_diff.index(np.array(xy_posi, dtype=np.int64).tolist())
 
-
-    def sample_padded_batch(self):
+    def sample_padded_batch_sorted(self):
         if self.current_sample_index + self.batch_size >= self.cur_size:
             random.shuffle(self.all_subtraj)
             self.current_sample_index = 0
         sub_trajs = self.all_subtraj[self.current_sample_index : self.current_sample_index + self.batch_size]
         # padd to same length
-        sub_traj_padded = pad_sequence([sub_traj.data for sub_traj in sub_trajs], batch_first=True, padding_value=len(self.set_diff)) # (B, max_L, dim(S))
+        batch = [sub_traj.data + 1 for sub_traj in sub_trajs] # !! +1 index
+        length = torch.tensor([s.shape[0] for s in batch])
+        sorted_seq_lengths, indices = torch.sort(length, descending=True)
+        _  , desorted_indices = torch.sort(indices, descending=False)                
+
+        # pdb.set_trace()
+        # !! sort return value(boundary and padded batch)
+        sub_traj_padded = pad_sequence(batch, batch_first=True, padding_value=0)[indices] # (B, max_L, dim(S))
+        potential_boundary = (torch.stack((torch.tensor([sub_traj[0] for sub_traj in batch]) , \
+                                            torch.tensor([sub_traj[-1] for sub_traj in batch]))) - 1).T[indices] # only use index = index + 1 when embedding, else use index in set_diff
         # sub_traj_padded = pad_sequence([s_ind_list[0] for s_ind_list in sub_trajs], batch_first=True, padding_value=len(self.set_diff)) # (B, max_L, dim(S))
         # boundary_index = torch.tensor([s_ind_list[1] for s_ind_list in sub_trajs]) # B, 2
         # self.current_sample_index += self.batch_size
-        # (B, max_L, dim(S)), (B, max_len)
-        return sub_traj_padded #, boundary_index#, mask
+        # (B, max_L, dim(S)), (B, 2, dim(S))
+        return sub_traj_padded, potential_boundary, sorted_seq_lengths #, boundary_index#, mask
 
     def sample_batch_index(self, index):
         sub_traj = self.all_subtraj_ordered[index]
@@ -212,7 +231,46 @@ class dynamic_sub_traj_dataset():
         # (B, dim(S))
         # pdb.set_trace()
         return np.array([self.set_diff[set_diff_index] for set_diff_index in sub_traj.data]) # (L, 2)
-    
+
+    # @staticmethod
+    def get_adjacent_mask(self, potential_boundary):
+        '''
+        input: (B, 2) Batches of starting and ending point states. As potential boundary.
+        output: -1 when adjacent state is boundary,
+                1  when xxx            is not boundary but adjacent.
+        '''
+        # get adjacency mask
+        batch_size = potential_boundary.shape[0]
+        view1 = torch.repeat_interleave(potential_boundary[:, 0], batch_size) # B^2 (11111..., 22222..., )
+        view2 = potential_boundary[:, 1].repeat(batch_size) # B^2 (1:10, 1:10, ...)
+        # mask = torch.bitwise_or(torch.bitwise_and((view1 == view2 ).reshape((batch_size, -1)), potential_boundary[:, 0] != -1), \
+        #         torch.bitwise_and((view1 == view2 ).reshape((batch_size, -1)), potential_boundary[:, 1] != -1))
+        mask = torch.stack((view2, view1), dim=-1) # (B, B, 2)
+        mask = mask.reshape((-1, 2))# (B^2, 2)
+        # each tuple in mask is (end_of_a_seq, begin_of_b_seq)
+        i = 0
+        adjacent_mask = torch.zeros(mask.shape[0])
+        for e_b_tuple in mask:
+            if e_b_tuple.tolist() in self.all_adjacent_list: #TODO
+                adjacent_mask[i] = 1
+            if e_b_tuple.tolist() in self.boundary_adjacent_list: #TODO
+                adjacent_mask[i] = -1 # 
+            i += 1
+        adjacent_mask = adjacent_mask.reshape((batch_size, batch_size))
+        # pdb.set_trace()
+        return adjacent_mask + adjacent_mask.T # distance matrix should be symetric.
+
+    def get_boundary_list(self, potential_boundary):
+        '''
+        
+        '''
+        pass
+
+    def get_weight_for_divergence(self, potential_boundary):
+        '''
+        
+        '''
+        pass
 # define fixed_noise_dataset.
 class noise_dataset():
     def __init__(self, c_dim, z_dim, dtype) -> None:

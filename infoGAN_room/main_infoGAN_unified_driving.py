@@ -15,22 +15,22 @@ import sys
 from manipulate_dataset import update_dataset
 
 from models import Encoder
-from utils.boundary_utils import get_boundary_adjacent, get_all_adjacent
-from utils.load_expert_traj import Expert, ExpertHDF5
+from utils.boundary_utils_continuous import get_div_from_all_traj_continuous
+from utils.load_expert_traj import CircleExpertHDF5
+
 
 # from utils.logger import Logger, TensorboardXLogger
-from utils.dataset_utils import dynamic_sub_traj_dataset, noise_sample
+from utils.dataset_utils_driving import dynamic_sub_traj_dataset, noise_sample
 import time
 from tqdm import trange
 from models import Generator, Discriminator, QHead
 from torch.nn.utils.rnn import pad_packed_sequence
 from torch.nn.utils.rnn import pack_padded_sequence
-from utils.plot_utils import plot_trajectory_room
+from utils.plot_utils import plot_trajectory_circle
 import seaborn as sns
 import wandb
 import matplotlib as plt
 
-from matplotlib.backends.backend_agg import FigureCanvasAgg
 def main(args):
 
     # Create Logger
@@ -48,16 +48,14 @@ def main(args):
     if args.cuda:
         label_dtype = torch.cuda.LongTensor
 
-    expert = ExpertHDF5(args.expert_path, args.vae_state_size)
-    expert.push(only_coordinates_in_state=True, one_hot_action=True)
+    expert = CircleExpertHDF5(args.expert_path, args.state_size)
+    expert.push(only_coordinates_in_state=False, one_hot_action=True)
     traj_expert = expert.sample_all()
     state_expert, action_expert, c_expert, _ = traj_expert
-    boundary_adjacent_list = get_boundary_adjacent(state_expert)  # (50, 15, 2)   
-    all_adjacent_list = get_all_adjacent(state_expert) # x of tuples  
+    divergence = get_div_from_all_traj_continuous(state_expert, delta_t=5, neighbor_k=10) # (50, 15, 2)   
     # dataset = sub_traj_dataset(state_expert, boundary_list=boundary_list, max_len=args.max_len, batch_size=args.batch_size,set_diff=expert.set_diff)
-    dataset = dynamic_sub_traj_dataset(all_traj=state_expert,boundary_adjacent_list=boundary_adjacent_list,\
-        all_adjacent_list=all_adjacent_list, max_len=args.max_len,\
-         batch_size=args.batch_size,set_diff=expert.set_diff)
+    dataset = dynamic_sub_traj_dataset(all_traj=list(state_expert), max_len=args.max_len,\
+         batch_size=args.batch_size,div=divergence)
     # Loss for discrimination between real and fake images.
     criterionD = nn.BCELoss()
     # Loss for discrete latent code.
@@ -65,23 +63,21 @@ def main(args):
 
     # Initialise the network.
     # netG = Generator(input_size=args.c_dim+args.z_dim+len(expert.set_diff), max_len=args.max_len, output_size=len(expert.set_diff)).type(dtype)
-    # input = cat(dim_c, dim_s_embed )
-    netG = Generator(embed_size=args.embed_size, state_size=args.embed_size).type(dtype)
+    netG = Generator(embed_size=args.embed_size).type(dtype)
     print(netG)
 
     # embed_x  -> 1
-    discriminator = Discriminator(input_size=args.embed_size).type(dtype)
+    discriminator = Discriminator(input_size=args.state_size).type(dtype)
     print(discriminator)
 
     # x  -> c
-    netQ = QHead(input_size=args.embed_size, output_size=args.c_dim).type(dtype)
+    netQ = QHead(input_size=args.state_size, output_size=args.c_dim).type(dtype)
     print(netQ)
 
     # , {'params': encoder.s_embed.parameters()}
-    encoder = Encoder(vocab_size=len(expert.set_diff) + 1, embed_size=args.embed_size, c_size=args.c_dim).type(dtype)
+    encoder = Encoder(embed_size=args.embed_size, c_size=args.c_dim).type(dtype)
     
-    # optimizer = optim.Adagrad # Adam RMSprop Adagrad
-    optimizer = optim.RMSprop # Adam RMSprop Adagrad
+    optimizer = optim.RMSprop # Adam RMSprop
     optimD = optimizer([{'params': discriminator.parameters()}], lr=args.lr)#, weight_decay=1e-3)#, betas=(args.beta1, args.beta2))
     optimG = optimizer([{'params': netG.parameters()}, {'params': netQ.parameters()}], lr=args.lr)#, weight_decay=1e-3)#, betas=(args.beta1, args.beta2))
     schedulerD = optim.lr_scheduler.StepLR(optimD, step_size=30, gamma=0.1)
@@ -102,20 +98,18 @@ def main(args):
         for iter in range(dataset.cur_size // args.batch_size):
             # get sorted batch
             batch, potential_boundary, sorted_seq_lengths = dataset.sample_padded_batch_sorted() # (B, len)
-            noise_z, noise_c = noise_sample(dis_c_dim=args.c_dim, z_dim=len(expert.set_diff), batch_size=args.batch_size, dtype=dtype) # (B, c+z)
+            noise_z, noise_c = noise_sample(dis_c_dim=args.c_dim, z_dim=args.state_size, batch_size=args.batch_size, dtype=dtype) # (B, z), (B)
             batch = batch.to(device) # (B, len)
-            batch_feat = encoder.s_embed(batch.type(label_dtype))  # (B, len, feat) # padded position is zero as default, no need to modify.
             
-            batch_feat_packed = pack_padded_sequence(input=batch_feat, lengths=sorted_seq_lengths, batch_first=True, enforce_sorted=True)
+            batch_feat_packed = pack_padded_sequence(input=batch, lengths=sorted_seq_lengths, batch_first=True, enforce_sorted=True)
             # Updating discriminator and DHead
             optimD.zero_grad()
 
             # Fake data
             label = torch.full((args.batch_size, ), fake_label).type(dtype=dtype)
-            feat_z, feat_c = encoder(noise_z.type(label_dtype), noise_c.type(label_dtype)) # (B)(B) -> (B, embed) (B, embed)
-            # print(feat_c, feat_z)
+            feat_z, feat_c = noise_z.to(device), encoder.c_embed(noise_c.to(device))#.type(label_dtype) # (B)(B) -> (B, embed) (B, embed)
             # pdb.set_trace()
-            fake_data_feat = netG(noise_z=feat_z, context=feat_c, teacher_force=args.teacher_force, x=batch_feat) #TODO (B, max_len, dim) [packed]
+            fake_data_feat = netG(noise_z=feat_z, context=feat_c, teacher_force=args.teacher_force, x=batch) #TODO (B, max_len, dim) [packed]
             fake_data_feat_packed_detach = pack_padded_sequence(input=fake_data_feat.detach(), lengths=sorted_seq_lengths, batch_first=True, enforce_sorted=True)
             fake_data_feat_packed = pack_padded_sequence(input=fake_data_feat, lengths=sorted_seq_lengths, batch_first=True, enforce_sorted=True)
             #TODO mask
@@ -158,20 +152,21 @@ def main(args):
             # mask = mask + mask.T
             
             q_logits_detach = netQ(fake_data_feat_packed_detach) 
-            # adjascent sequences.
-            dist = torch.softmax(q_logits_detach, dim=-1).unsqueeze(0) - torch.softmax(q_logits_detach, dim=-1).unsqueeze(1) # B, B , dim_c
-            # dist = q_logits_detach.unsqueeze(0) - q_logits_detach.unsqueeze(1) # B, B , dim_c
-            # dist_loss = torch.tensor(0)
-            adjacent_mask = dataset.get_adjacent_mask(potential_boundary=potential_boundary) # (B, B)
             
-            # pdb.set_trace()
-            if args.distance_type == 'l1':
-                dist_loss = torch.sum(torch.mean(nn.L1Loss(reduction='none')(dist, torch.zeros_like(dist)),dim=-1) * adjacent_mask.type(dtype) )
-            elif args.distance_type == 'l2':
-                dist_loss = torch.sum(torch.sum(dist*dist, dim=-1)* adjacent_mask.type(dtype) / 2 ) 
+            # adjascent sequences.
+            # dist = torch.softmax(q_logits_detach, dim=-1).unsqueeze(0) - torch.softmax(q_logits_detach, dim=-1).unsqueeze(1) # B, B , dim_c
+            dist_loss = torch.tensor(0)
+            # adjacent_mask = dataset.get_adjacent_mask(potential_boundary=potential_boundary) # (B, B)
+            
+            # # pdb.set_trace()
+            # if args.distance_type == 'l1':
+            #     dist_loss = torch.sum(torch.mean(nn.L1Loss(reduction='none')(dist, torch.zeros_like(dist)),dim=-1) * adjacent_mask.type(dtype) )
+            # elif args.distance_type == 'l2':
+            #     dist_loss = torch.sum(torch.sum(dist*dist, dim=-1)* adjacent_mask.type(dtype) / 2 ) 
+
             # Net loss for generator.
             # [2] negative distance loss
-            G_loss = gen_loss * args.lambda_gen + posterior_loss * args.lambda_post + dist_loss  * args.lambda_dist
+            G_loss = gen_loss * args.lambda_gen + posterior_loss * args.lambda_post #+ dist_loss  * args.lambda_dist
             # [1] 1 / distance loss
             # G_loss = gen_loss * args.lambda_gen + posterior_loss * args.lambda_post + 1 / (dist_loss + 1e-5) * args.lambda_dist
             
@@ -215,22 +210,18 @@ def main(args):
         # testing
         # dict of state and pred context
         if (epoch  )% 10 == 0:
-            state_and_pred_context = test_for_context(Qnet=netQ, encoder=encoder.s_embed, \
-                                                        dataset=dataset, dtype=dtype, label_dtype=label_dtype,  num_test_samples=10)
+            # pdb.set_trace()
+            state_and_pred_context = test_for_context(Qnet=netQ,  dataset=dataset,  num_test_samples=10, dtype=dtype)
 
             # plot
             fig_dir = os.path.join(os.path.dirname(args.results_pkl_path), 'visualize')
             os.makedirs(fig_dir,exist_ok='True')
             
             wandb_log_stamp = now if args.wandb else False
-            plot_trajectory_room(traj_context_data=state_and_pred_context,
-                            grid_size=(15, 11),
-                            color_map=sns.color_palette("Blues_r"),
-                            figsize=(6, 6),
-                            obstacles=expert.obstacles,
-                            save_path=fig_dir, wandb_log_stamp=wandb_log_stamp, eposode=epoch)
+            plot_trajectory_circle(traj_context_data=state_and_pred_context,
+                            figsize=(6, 6),                         save_path=fig_dir,  wandb_log_stamp=wandb_log_stamp, eposode=epoch)
 
-def test_for_context(Qnet:nn.Module, encoder:nn.Module, dataset:dynamic_sub_traj_dataset, dtype, label_dtype, num_test_samples=10):
+def test_for_context(Qnet:nn.Module, dataset:dynamic_sub_traj_dataset, dtype, num_test_samples=10):
     Qnet.eval()
     results = {'true_traj_state': [],'pred_context': []}
     # get sub_trajs for each traj
@@ -240,19 +231,19 @@ def test_for_context(Qnet:nn.Module, encoder:nn.Module, dataset:dynamic_sub_traj
         true_traj = []
         subtraj = dataset.sample_batch_index(j_subtraj)
         while subtraj.traj_index == i_traj: # within the same traj
-            x_feat = encoder(subtraj.data.unsqueeze(0).type(label_dtype))
+            x_feat = subtraj.data.unsqueeze(0).type(dtype)
             logits_q = F.softmax(Qnet(x_feat), dim=-1)[0] #(c) dim=1
             # pdb.set_trace()
             for _ in range(subtraj.data.shape[0]):
                 pred_context.append(logits_q.data.cpu().numpy())
             if args.debug:
                 print(subtraj.data)
-            true_traj.append(dataset.convert2_true_posi(j_subtraj))
+            true_traj.append(subtraj.data)
             j_subtraj += 1
             subtraj = dataset.sample_batch_index(j_subtraj)
         print(true_traj)
         # pdb.set_trace()
-        results['true_traj_state'].append(np.concatenate(true_traj, axis=0))
+        results['true_traj_state'].append(torch.cat(true_traj, dim=0))
         results['pred_context'].append(np.array(pred_context))
     Qnet.train()
     return results
@@ -281,15 +272,15 @@ if __name__ == '__main__':
     parser.add_argument('--log_interval', type=int, default=20, metavar='N',
                         help='how many batches to wait before logging ' \
                               'training status')
-    parser.add_argument('--update_interval', type=int, default=40, metavar='N',
+    parser.add_argument('--update_interval', type=int, default=400, metavar='N',
                         help='how many batches to wait before updating dataset ')
-    parser.add_argument('--expert_path', default='../IL/h5_trajs/room_trajs/traj_len_16',
+    parser.add_argument('--expert_path', default='../IL/h5_trajs/circle_trajs/meta_42_traj_50_circles',
                         metavar='G',
                         help='path to the expert trajectory files')
 
-    parser.add_argument('--vae_state_size', type=int, default=2,
+    parser.add_argument('--state_size', type=int, default=2,
                         help='State size for VAE.')
-    parser.add_argument('--vae_action_size', type=int, default=4,
+    parser.add_argument('--action_size', type=int, default=4,
                         help='Action size for VAE.')
     parser.add_argument('--c_dim', type=int, default=10,
                         help='Context size for VAE.')
@@ -301,7 +292,7 @@ if __name__ == '__main__':
                         help='learning rate')
     parser.add_argument('--beta1', type=float, default=0.5, help='beta1 for Adam')
     parser.add_argument('--beta2', type=float, default=0.999, help='beta2 for Adam')
-    parser.add_argument('--lambda_post', type=float, default=.001, help='param for poset')
+    parser.add_argument('--lambda_post', type=float, default=3., help='param for poset')
     parser.add_argument('--lambda_dist', type=float, default=.001, help='param for dist')
     parser.add_argument('--lambda_gen', type=float, default=1., help='param for gen')
     parser.add_argument('--threshold', type=float, default=.5, help='threshold for updating dataset')
@@ -321,7 +312,7 @@ if __name__ == '__main__':
                         help='Checkpoint path to load pre-trained models.')
     parser.add_argument('--finetune_path', type=str, default='',
                         help='pre-trained models to finetune.')
-    parser.add_argument('--results_pkl_path', default='./results/test_predict/room_traj/context_4/pred_result_cp_1000.pth')
+    parser.add_argument('--results_pkl_path', default='./results/test_predict/circle/context_4/pred_result_cp_1000.pth')
 
     # training hyperparams
     
@@ -330,10 +321,10 @@ if __name__ == '__main__':
     parser.add_argument('--wandb', action='store_true', help='whether save on wandb')
     parser.add_argument('--teacher_force', action='store_true', help='whether use true state in RNN generator')
     args = parser.parse_args()
-    now = time.strftime(f"RMSprop-Gen{args.lambda_gen}_Post{args.lambda_post}_Dist{args.lambda_dist}-"+"%Y-%m-%d-%H_%M_%S", time.localtime(time.time()))
+    now = time.strftime(f"RMSProp-Gen{args.lambda_gen}_Post{args.lambda_post}_Dist{args.lambda_dist}-"+"%Y-%m-%d-%H_%M_%S", time.localtime(time.time()))
     
     if args.wandb:
-        wandb.init(project="infoGAN_grid_room", entity="evieq01")
+        wandb.init(project="infoGAN_circle", entity="evieq01")
         wandb.run.name = f'{now}'
         wandb.config.update(args)
 
@@ -344,6 +335,7 @@ if __name__ == '__main__':
         os.makedirs(args.results_dir)
 
     torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
     random.seed(args.seed)
     if args.cuda:
         torch.cuda.manual_seed(args.seed)

@@ -166,10 +166,7 @@ class ExpertHDF5(Expert):
                 radius = np.array(h5f['expert_traj'][k]['radius'])
 
             # context = h5f[k]['context']
-            # pdb.set_trace()
-            context = None
-            if 'goal' in list(h5f['expert_traj'][k].keys()):
-                context = np.array(h5f['expert_traj'][k]['goal'], dtype=np.float32)
+            context = np.array(h5f['expert_traj'][k]['goal'], dtype=np.float32)
             mask = np.ones((action.shape[0]))
             mask[-1] = 0
             memory.append(Trajectory(state, action, context, mask))
@@ -177,10 +174,9 @@ class ExpertHDF5(Expert):
 
         self.memory = memory
         self.memory_no_tuple = memory_no_tuple
-        if 'obstacles' in list(h5f.keys()):
-            self.obstacles = np.array(h5f['obstacles'])
-        if 'set_diff' in list(h5f.keys()):
-            self.set_diff = np.array(h5f['set_diff'])
+
+        self.obstacles = np.array(h5f['obstacles'])
+        self.set_diff = np.array(h5f['set_diff'])
         h5f.close()
 
     def sample(self, size=5, return_indices=False):

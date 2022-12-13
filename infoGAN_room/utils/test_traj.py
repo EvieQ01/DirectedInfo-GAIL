@@ -6,10 +6,11 @@ import cv2
 import pdb
 from load_expert_traj import Expert, ExpertHDF5, CircleExpertHDF5
 from boundary_utils import get_boundary_from_all_traj
-from boundary_utils_continuous import get_boundary_from_all_traj_continuous
+from boundary_utils_continuous import get_div_from_all_traj_continuous
 env = 'circle'
 if 'circle' in env:
-    expert_path = './h5_trajs/circle_trajs/meta_1234_traj_50_circles'
+    # expert_path = '../../IL/h5_trajs/circle_trajs/meta_42_traj_50_circles'
+    expert_path = '../../IL/h5_trajs/circle_trajs/meta_842_traj_60_circles'
     vae_state_size = 2
     expert = CircleExpertHDF5(expert_path, vae_state_size)
     expert.push(only_coordinates_in_state=False, one_hot_action=False)
@@ -25,4 +26,4 @@ elif 'room' in env:
 traj_expert = expert.sample_all()
 state_expert, action_expert, c_expert, _ = traj_expert
 # boundary = get_boundary_from_all_traj(state_expert)
-boundary = get_boundary_from_all_traj_continuous(state_expert, delta_t=5, neighbor_k=10)
+boundary = get_div_from_all_traj_continuous(state_expert, delta_t=5, neighbor_k=10)

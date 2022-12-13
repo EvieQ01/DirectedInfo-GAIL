@@ -11,10 +11,10 @@ out_vocab = {'BOS':-1, 'EOS': -1} # end of sentence is a sequence of boundary po
 Architecture based on InfoGAN paper.
 """
 class Encoder(nn.Module):
-    def __init__(self, vocab_size, embed_size, c_size, **kwargs):
+    def __init__(self, embed_size, c_size, vocab_size=None,  **kwargs):
         super(Encoder, self).__init__(**kwargs)
         # self.embedding = nn.Embedding(vocab_size, embed_size)
-        self.s_embed = nn.Embedding(num_embeddings=vocab_size, embedding_dim=embed_size)
+        self.s_embed = nn.Embedding(num_embeddings=vocab_size, embedding_dim=embed_size) if vocab_size else None
         self.c_embed = nn.Embedding(num_embeddings=c_size, embedding_dim=embed_size)
 
         # self.rnn = nn.GRU(2*embed_size + noise_size, num_hiddens, num_layers, dropout=drop_prob, batch_first=True)
@@ -27,15 +27,13 @@ class Encoder(nn.Module):
         # return self.rnn(embedding, state)# (B, seq_len, input_size)
         return embedding_s, embedding_c
 
-    def begin_state(self):
-        return None
 class Decoder(nn.Module):
-    def __init__(self, embed_size, num_hiddens, num_layers,
+    def __init__(self, input_size, num_hiddens, num_layers,
                 drop_prob=0):
         super(Decoder, self).__init__()
         # self.embedding = nn.Embedding(vocab_size, embed_size)
         # GRU的输入包含attention输出的c和实际输入, 所以尺寸是 num_hiddens+embed_size
-        self.rnn = nn.GRU(input_size=embed_size + embed_size, hidden_size=num_hiddens, 
+        self.rnn = nn.GRU(input_size=input_size, hidden_size=num_hiddens, 
                           num_layers=num_layers, dropout=drop_prob, batch_first=True)
         # self.out = nn.Linear(num_hiddens, vocab_size)
 
@@ -62,12 +60,12 @@ class Decoder(nn.Module):
         return state
 
 class Generator(nn.Module):
-	def __init__(self, embed_size=10, hidden_size=128):
+	def __init__(self, embed_size=10, hidden_size=128, state_size=2):
 		super().__init__()
 		# self.encoder = Encoder(vocab_size=output_size, embed_size=embed_size, noise_size=noise_size, c_size=c_size, \
 		# 				num_hiddens=hidden_size, num_layers=2, drop_prob=0.2)
-		self.decoder = Decoder(embed_size=embed_size, num_hiddens=hidden_size, num_layers=2, drop_prob=0.2)
-		self.affine = nn.Linear(in_features=hidden_size, out_features=embed_size)
+		self.decoder = Decoder(input_size=embed_size + state_size, num_hiddens=hidden_size, num_layers=2, drop_prob=0.2)
+		self.affine = nn.Linear(in_features=hidden_size, out_features=state_size)
 		self.hidden_size = hidden_size
 		# self.decoder = nn.LSTM(hidden_size=hidden_size, input_size=input_size, batch_first=True, num_layers=2) #N, L , H_in
 
@@ -80,10 +78,7 @@ class Generator(nn.Module):
 		# 初始化解码器的隐藏状态
 		dec_state = self.decoder.begin_state(noise_z, c=context)
 		# 解码器在最初时间步的输入是BOS
-		# dec_input = torch.tensor([out_vocab['BOS']] * B)
 		dec_input = x[:, 0] # input = (B)
-		# 我们将使用掩码变量mask来忽略掉标签为填充项PAD的损失, 初始全1
-		# mask, num_not_pad_tokens = torch.ones(B,), 0
 		out_seq = []
 		step = 0
 		for x_step in x.permute(1, 0, 2): # x shape: (batch, seq_len), y shape (B)
@@ -183,8 +178,7 @@ class Discriminator(nn.Module):
 			# pdb.set_trace()
 			# print(o_unpacked.shape)
 		return self.output(torch.mean(o_unpacked, dim=-2)) # (B, hidden)
-		# return self.output(h_n[-1]) # 2 for 2 layers
-		# TODO activation function?
+		# return self.output(o_unpacked[:, -1, :]) # (B, hidden)
 
 
 class QHead(nn.Module):
@@ -208,7 +202,7 @@ class QHead(nn.Module):
 			# pdb.set_trace()
 			# print(o_unpacked.shape)
 		return self.output(torch.mean(o_unpacked, dim=-2)) # (B, hidden)
-		# TODO activation function?
+		# return self.output(o_unpacked[:, -1, :]) # (B, hidden) #TODO
 
 	# def forward(self, x):
 	# 	x = F.leaky_relu(self.bn1(self.conv1(x)), 0.1, inplace=True)

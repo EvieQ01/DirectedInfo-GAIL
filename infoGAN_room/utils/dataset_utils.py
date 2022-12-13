@@ -182,7 +182,7 @@ class dynamic_sub_traj_dataset():
         self.update(all_subtraj=self.all_subtraj)
         # print(f"=> Create dataset with {self.cur_size} subtraj ({self.cur_size} steps in all, for whole dataset).")
         # print('sample: ', self.all_subtraj[0])
-        # self.all_subtraj_ordered = deepcopy(self.all_subtraj)
+        self.all_subtraj_ordered = deepcopy(self.all_subtraj)
 
     # update all_subtraj and sizes
     def update(self, all_subtraj) -> None:
@@ -217,7 +217,7 @@ class dynamic_sub_traj_dataset():
                                             torch.tensor([sub_traj[-1] for sub_traj in batch]))) - 1).T[indices] # only use index = index + 1 when embedding, else use index in set_diff
         # sub_traj_padded = pad_sequence([s_ind_list[0] for s_ind_list in sub_trajs], batch_first=True, padding_value=len(self.set_diff)) # (B, max_L, dim(S))
         # boundary_index = torch.tensor([s_ind_list[1] for s_ind_list in sub_trajs]) # B, 2
-        # self.current_sample_index += self.batch_size
+        self.current_sample_index += self.batch_size
         # (B, max_L, dim(S)), (B, 2, dim(S))
         return sub_traj_padded, potential_boundary, sorted_seq_lengths #, boundary_index#, mask
 
